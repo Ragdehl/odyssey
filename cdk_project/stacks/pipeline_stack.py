@@ -14,7 +14,7 @@ class AppStage(Stage):
         super().__init__(scope, construct_id, **kwargs)
         StaticSiteStack(self, f"StaticSiteStack-{env_name}", env_name=env_name)
 
-class PipelineStack(Stack):
+class OdyssePipelineStack(Stack):
     def __init__(
         self,
         scope: Construct,
