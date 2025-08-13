@@ -1,0 +1,23 @@
+{
+    "app": "python app.py",
+    "context": {
+        "odyssey": {
+            "env": "dev",
+            "region": "eu-west-1",
+            "github": {
+                "owner": "Ragdehl",
+                "repo": "odyssey"
+            },
+            "dev": {
+                "account_id": "913388733641",
+                "connection_id": "134bbe0d-985f-4275-98a0-6ed4d12d394b",
+                "branch": "dev"
+            },
+            "main": {
+                "account_id": "979244568139",
+                "connection_id": "f7cae7fb-3a6e-4236-9b4a-53d814132c94",
+                "branch": "main"
+            }
+        }
+    }
+}

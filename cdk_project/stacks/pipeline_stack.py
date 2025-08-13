@@ -3,22 +3,18 @@ from aws_cdk import (
     Stage,
     pipelines as pipelines,
     Environment,
+    aws_iam as iam,
 )
 from constructs import Construct
-from .app_stack import StaticSiteStack
+from .site_stack import StaticSiteStack
+from ..builders.policy_builder import apply_policies_to_role
 
-# A Stage is a collection of stacks that are deployed together.
 class AppStage(Stage):
     def __init__(self, scope: Construct, construct_id: str, env_name: str, **kwargs):
         super().__init__(scope, construct_id, **kwargs)
         StaticSiteStack(self, f"StaticSiteStack-{env_name}", env_name=env_name)
 
-
 class PipelineStack(Stack):
-    """
-    This stack creates the CodePipeline that automates the deployment
-    of your S3 website to 'dev' and 'main' environments.
-    """
     def __init__(
         self,
         scope: Construct,
@@ -29,6 +25,7 @@ class PipelineStack(Stack):
         connection_arn: str,
         env_name: str,                 # "dev" | "main"
         branch: str,                   # p.ej. "dev" o "main"
+        manual_approval: bool = False, # true en prod
         app_env: Environment | None = None,
         **kwargs
     ) -> None:
@@ -41,7 +38,8 @@ class PipelineStack(Stack):
         )
 
         pipeline = pipelines.CodePipeline(
-            self, "Odyssey-Static-Site-Pipeline",
+            scope, 
+            "Odyssey-Static-Site-Pipeline",
             pipeline_name="Odyssey-Static-Site-Pipeline",
             synth=pipelines.ShellStep(
                 "Synth",
@@ -54,13 +52,10 @@ class PipelineStack(Stack):
             )
         )
 
-        stage = AppStage(
-            self, env_name.capitalize(),
-            env_name=env_name,
-            env=app_env,
-        )
+        apply_policies_to_role(pipeline.pipeline.role, "pipeline_config.json")
 
-        if env_name.lower() == "main":
-            pipeline.add_stage(stage, pre=[pipelines.ManualApprovalStep("ApproveMainDeployment")])
+        stage = AppStage(self, env_name.capitalize(), env_name=env_name, env=app_env)
+        if manual_approval:
+            pipeline.add_stage(stage, pre=[pipelines.ManualApprovalStep("ApproveDeployment")])
         else:
             pipeline.add_stage(stage)
