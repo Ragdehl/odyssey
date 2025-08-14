@@ -3,6 +3,7 @@ from aws_cdk import (
     aws_s3_deployment as s3_deployment,
     RemovalPolicy,
     CfnOutput,
+    Stack,
 )
 from constructs import Construct
 import os
@@ -10,8 +11,10 @@ import os
 class StaticWebsite(Construct):
     def __init__(self, scope: Construct, construct_id: str, *, env_name: str) -> None:
         super().__init__(scope, construct_id)
-
-        bucket_name = f"odyssey-chat-interface-{env_name.lower()}-{Construct.of(self).account}-{Construct.of(self).region}"
+    
+        account = Stack.of(self).account
+        region  = Stack.of(self).region
+        bucket_name = f"odyssey-chat-interface-{env_name.lower()}-{account}-{region}"
 
         self.bucket = s3.Bucket(
             scope,
