@@ -6,15 +6,15 @@ from aws_cdk import (
     aws_iam as iam,
 )
 from constructs import Construct
-from .site_stack import StaticSiteStack
-from ..builders.policy_builder import apply_policies_to_role
+from cdk_project.stacks.site_stack import StaticSiteStack
+from cdk_project.builders.policy_builder import apply_policies_to_role
 
 class AppStage(Stage):
     def __init__(self, scope: Construct, construct_id: str, env_name: str, **kwargs):
         super().__init__(scope, construct_id, **kwargs)
         StaticSiteStack(self, f"StaticSiteStack-{env_name}", env_name=env_name)
 
-class OdyssePipelineStack(Stack):
+class OdysseyPipelineStack(Stack):
     def __init__(
         self,
         scope: Construct,
@@ -52,10 +52,13 @@ class OdyssePipelineStack(Stack):
             )
         )
 
-        apply_policies_to_role(pipeline.pipeline.role, "pipeline_config.json")
-
         stage = AppStage(self, env_name.capitalize(), env_name=env_name, env=app_env)
         if manual_approval:
             pipeline.add_stage(stage, pre=[pipelines.ManualApprovalStep("ApproveDeployment")])
         else:
             pipeline.add_stage(stage)
+
+        pipeline.build_pipeline()
+
+        apply_policies_to_role(pipeline.pipeline.role, "pipeline_config.json")
+

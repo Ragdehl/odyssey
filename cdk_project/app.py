@@ -1,7 +1,7 @@
 import aws_cdk as cdk
 from aws_cdk import Environment
 from cdk_project.configs.odyssey_cfg import get_cfg
-from cdk_project.stacks.pipeline_stack import OdyssePipelineStack
+from cdk_project.stacks.pipeline_stack import OdysseyPipelineStack
 
 app = cdk.App()
 cfg = get_cfg(app)
@@ -9,7 +9,7 @@ cfg = get_cfg(app)
 PIPELINE_ENV = Environment(account=cfg.env.account_id, region=cfg.env.region)
 APP_ENV      = PIPELINE_ENV
 
-OdyssePipelineStack(
+OdysseyPipelineStack(
     app,
     "OdysseyPipelineStack",
     env=PIPELINE_ENV,

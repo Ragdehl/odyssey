@@ -3,7 +3,7 @@ import json, os, re
 from typing import Any, Iterable, Mapping
 from aws_cdk import Stack
 from aws_cdk import aws_iam as iam
-from ..configs.odyssey_cfg import get_cfg
+from cdk_project.configs.odyssey_cfg import get_cfg
 
 _VAR = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
 

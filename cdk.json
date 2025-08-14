@@ -1,5 +1,5 @@
 {
-    "app": "python app.py",
+    "app": "python -m cdk_project.app",
     "context": {
         "odyssey": {
             "env": "dev",

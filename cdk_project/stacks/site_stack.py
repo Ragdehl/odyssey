@@ -1,6 +1,6 @@
 from aws_cdk import Stack
 from constructs import Construct
-from ..builders.static_site_builder import StaticWebsite
+from cdk_project.builders.static_site_builder import StaticWebsite
 
 class StaticSiteStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, *, env_name: str, **kwargs) -> None:
