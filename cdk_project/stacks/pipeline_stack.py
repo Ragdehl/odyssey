@@ -10,9 +10,9 @@ from cdk_project.stacks.site_stack import StaticSiteStack
 from cdk_project.builders.policy_builder import apply_policies_to_role
 
 class AppStage(Stage):
-    def __init__(self, scope: Construct, construct_id: str, env_name: str, **kwargs):
+    def __init__(self, scope: Construct, construct_id: str, env_name: str, app_env: Environment, **kwargs):
         super().__init__(scope, construct_id, **kwargs)
-        StaticSiteStack(self, f"StaticSiteStack-{env_name}", env_name=env_name)
+        StaticSiteStack(self, f"StaticSiteStack-{env_name}", env_name=env_name, env=app_env)
 
 class OdysseyPipelineStack(Stack):
     def __init__(
