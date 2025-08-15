@@ -1,3 +1,4 @@
+from pathlib import Path
 from aws_cdk import (
     aws_s3 as s3,
     aws_s3_deployment as s3_deployment,
@@ -32,10 +33,12 @@ class StaticWebsite(Construct):
             auto_delete_objects=(env_name.lower() != "main"),
         )
 
+        asset_dir = Path(__file__).resolve().parents[2] / "src"
+
         s3_deployment.BucketDeployment(
             scope,
             "DeployWebsite",
-            sources=[s3_deployment.Source.asset(os.path.join(os.path.dirname(__file__), "..", "src"))],
+            sources=[s3_deployment.Source.asset(str(asset_dir))],
             destination_bucket=self.bucket,
         )
 

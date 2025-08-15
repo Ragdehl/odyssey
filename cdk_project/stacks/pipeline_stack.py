@@ -37,22 +37,21 @@ class OdysseyPipelineStack(Stack):
             connection_arn=connection_arn,
         )
 
+        synth = pipelines.ShellStep(
+            "Synth",
+            input=source,
+            commands=["pip install -r requirements.txt", "npm i -g aws-cdk", "cdk synth"]
+        )
+
         pipeline = pipelines.CodePipeline(
-            scope, 
+            self, 
             "Odyssey-Static-Site-Pipeline",
             pipeline_name="Odyssey-Static-Site-Pipeline",
-            synth=pipelines.ShellStep(
-                "Synth",
-                input=source,
-                commands=[
-                    "pip install -r requirements.txt",
-                    "npm install -g aws-cdk",
-                    "cdk synth"
-                ]
-            )
+            synth=synth
         )
 
         stage = AppStage(self, env_name.capitalize(), env_name=env_name, env=app_env)
+
         if manual_approval:
             pipeline.add_stage(stage, pre=[pipelines.ManualApprovalStep("ApproveDeployment")])
         else:
@@ -60,5 +59,9 @@ class OdysseyPipelineStack(Stack):
 
         pipeline.build_pipeline()
 
-        apply_policies_to_role(pipeline.pipeline.role, "pipeline_config.json")
+        apply_policies_to_role(
+            pipeline.pipeline.role,
+            "pipeline_config.json",
+            base_dir="cdk_project/configs",
+        )
 
