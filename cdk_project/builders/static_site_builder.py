@@ -18,7 +18,7 @@ class StaticWebsite(Construct):
         bucket_name = f"odyssey-chat-interface-{env_name.lower()}-{account}-{region}"
 
         self.bucket = s3.Bucket(
-            scope,
+            self,
             "SiteBucket",
             bucket_name=bucket_name,
             website_index_document="index.html",
@@ -36,11 +36,15 @@ class StaticWebsite(Construct):
         asset_dir = Path(__file__).resolve().parents[2] / "src"
 
         s3_deployment.BucketDeployment(
-            scope,
+            self,
             "DeployWebsite",
             sources=[s3_deployment.Source.asset(str(asset_dir))],
             destination_bucket=self.bucket,
         )
 
         # handy output
-        CfnOutput(self, "WebsiteURL", value=self.bucket.bucket_website_url)
+        CfnOutput(
+            self,
+            "WebsiteURL",
+            value=self.bucket.bucket_website_url,
+        )

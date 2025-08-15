@@ -50,7 +50,7 @@ class OdysseyPipelineStack(Stack):
             synth=synth
         )
 
-        stage = AppStage(self, env_name.capitalize(), env_name=env_name, env=app_env)
+        stage = AppStage(self, env_name.capitalize(), env_name=env_name, app_env=app_env)
 
         if manual_approval:
             pipeline.add_stage(stage, pre=[pipelines.ManualApprovalStep("ApproveDeployment")])
