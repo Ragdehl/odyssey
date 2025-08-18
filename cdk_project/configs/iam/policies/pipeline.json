@@ -1,0 +1,14 @@
+{
+  "managed": [],
+  "inline": {
+    "UseCodeConnection": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "codeconnections:UseConnection"
+        ],
+        "Resource": "${ConnectionArn}"
+      }
+    ]
+  }
+}

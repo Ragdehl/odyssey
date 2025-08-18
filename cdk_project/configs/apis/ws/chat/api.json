@@ -1,0 +1,11 @@
+{
+    "name": "odyssey-chat-ws-${EnvName}",
+    "route_selection_expression": "$request.body.action",
+    "stage": {
+        "name": "${EnvName}",
+        "auto_deploy": true
+    },
+    "manage_connections_for": [
+        "chat"
+    ]
+}
