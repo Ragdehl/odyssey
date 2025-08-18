@@ -1,0 +1,22 @@
+{
+    "name": "chat",
+    "runtime": "python3.12",
+    "memory": 256,
+    "timeout": 10,
+    "handler": "app.handler",
+    "env": {
+        "STATIC_RESPONSE": "Odyssey here. Got your message",
+        "TABLE_NAME": "odyssey-chat-messages-${EnvName}"
+    },
+    "dynamodb_access": [
+        {
+            "table": "messages",
+            "access": "write"
+        }
+    ],
+    "tags": {
+        "service": "odyssey",
+        "domain": "chat"
+    },
+    "code_root": "lambda_src"
+}

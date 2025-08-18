@@ -1,0 +1,11 @@
+{
+    "inline": {
+        "WsManageConnections": [
+            {
+                "Effect": "Allow",
+                "Action": "execute-api:ManageConnections",
+                "Resource": "arn:${Partition}:execute-api:${Region}:${AccountId}:${ApiId}/*/@connections/*"
+            }
+        ]
+    }
+}
