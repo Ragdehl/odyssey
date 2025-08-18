@@ -7,12 +7,14 @@ from aws_cdk import (
 )
 from constructs import Construct
 from cdk_project.stacks.site_stack import StaticSiteStack
+from cdk_project.stacks.chat_backend_stack import ChatBackendStack
 from cdk_project.builders.policy_builder import apply_policies_to_role
 
 class AppStage(Stage):
     def __init__(self, scope: Construct, construct_id: str, env_name: str, app_env: Environment, **kwargs):
         super().__init__(scope, construct_id, **kwargs)
         StaticSiteStack(self, f"StaticSiteStack-{env_name}", env_name=env_name, env=app_env)
+        ChatBackendStack(self, f"ChatBackendStack-{env_name}", env_name=env_name, env=app_env)
 
 class OdysseyPipelineStack(Stack):
     def __init__(
@@ -65,7 +67,7 @@ class OdysseyPipelineStack(Stack):
 
         apply_policies_to_role(
             pipeline.pipeline.role,
-            "pipeline_config.json",
-            base_dir="cdk_project/configs",
+            "pipeline.json",
+            base_dir="cdk_project/configs/iam/policies",
         )
 
