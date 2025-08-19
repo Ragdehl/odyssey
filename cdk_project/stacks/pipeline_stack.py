@@ -40,7 +40,11 @@ class OdysseyPipelineStack(Stack):
         synth = pipelines.ShellStep(
             "Synth",
             input=source,
-            commands=["pip install -r requirements.txt", "npm i -g aws-cdk", "cdk synth"]
+            commands=[
+                "pip install -r requirements.txt",
+                "npm i -g aws-cdk",
+                f"cdk synth -c odyssey.env={env_name}",
+            ]
         )
 
         pipeline = pipelines.CodePipeline(
