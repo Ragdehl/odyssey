@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Mapping, Dict, List, Optional, Union
 from aws_cdk import Stack
 from cdk_project.configs.odyssey_cfg import get_cfg
+from cdk_project.configs.error_handler import ErrorHandler, ValidationDecorators
 
 _VAR = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
 
@@ -54,6 +55,7 @@ class ConfigManager:
             return {k: self.expand_placeholders(v, vars) for k, v in obj.items()}
         return obj
     
+    @ValidationDecorators.validate_service_name()
     def load_config(self, service_name: str, file_name: Optional[str] = None, expand_vars: bool = True, defaults_file: Optional[str] = None) -> Union[dict, List[dict], List[tuple[str, dict]]]:
         """
         Unified method to load configurations for any service.
@@ -69,9 +71,6 @@ class ConfigManager:
             - List of dicts if loading all files from directory
             - List of tuples (filepath, dict) for tables with defaults
         """
-        if service_name not in self.CONFIG_PATHS:
-            raise ValueError(f"Unknown service: {service_name}")
-        
         base_path = os.path.join(self.CONFIG_ROOT, self.CONFIG_PATHS[service_name])
         
         # Load defaults if provided
@@ -87,8 +86,7 @@ class ConfigManager:
         # Load specific file
         if file_name:
             file_path = os.path.join(base_path, file_name)
-            if not os.path.isfile(file_path):
-                raise FileNotFoundError(f"Config file not found: {file_path}")
+            ErrorHandler.validate_file_exists(file_path, "Config file")
             
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -103,8 +101,7 @@ class ConfigManager:
             return data
         
         # Load all files in directory
-        if not os.path.isdir(base_path):
-            raise FileNotFoundError(f"Config directory not found: {base_path}")
+        ErrorHandler.validate_path_exists(base_path, "Config directory")
         
         files = sorted(Path(base_path).glob("*.json"))
         if defaults_file:
@@ -126,6 +123,7 @@ class ConfigManager:
         
         return configs
     
+    @ValidationDecorators.validate_path_exists("code_root", "Lambda root")
     def find_lambda_dirs(self, code_root: str = "lambda_src") -> List[Path]:
         """
         Find all lambda directories that contain app.py.
@@ -136,12 +134,8 @@ class ConfigManager:
         Returns:
             List of Path objects for lambda directories
         """
-        root = Path(code_root)
-        if not root.is_dir():
-            raise FileNotFoundError(f"Lambda root not found: {code_root}")
-            
         lambda_dirs = []
-        for d in sorted(p for p in root.iterdir() if p.is_dir()):
+        for d in sorted(p for p in Path(code_root).iterdir() if p.is_dir()):
             if (d / "app.py").is_file():
                 lambda_dirs.append(d)
                 
@@ -168,12 +162,9 @@ class ConfigManager:
                 data = json.load(f)
             conf.update(data)
         
-        # Apply defaults
-        conf.setdefault("name", folder.name)
-        conf.setdefault("runtime", "python3.12")
-        conf.setdefault("memory", 256)
-        conf.setdefault("timeout", 10)
-        conf.setdefault("handler", "app.handler")
+        # Validate required fields
+        required_fields = ["name", "runtime", "memory", "timeout", "handler"]
+        ErrorHandler.validate_required_fields(conf, required_fields, f"Lambda configuration in {folder}")
         
         # Add code path
         conf["code_path"] = str(folder.resolve())
@@ -187,6 +178,7 @@ class ConfigManager:
         
         return conf
     
+    @ValidationDecorators.validate_service_name()
     def find_api_dirs(self, service_name: str = "ws_apis") -> List[Path]:
         """
         Find API directories for a service.
@@ -197,13 +189,8 @@ class ConfigManager:
         Returns:
             List of Path objects for API directories
         """
-        if service_name not in self.CONFIG_PATHS:
-            raise ValueError(f"Unknown service: {service_name}")
-        
         apis_dir = Path(os.path.join(self.CONFIG_ROOT, self.CONFIG_PATHS[service_name]))
-        
-        if not apis_dir.is_dir():
-            raise FileNotFoundError(f"APIs directory not found: {apis_dir}")
+        ErrorHandler.validate_path_exists(apis_dir, "APIs directory")
             
         api_dirs = []
         for d in sorted(p for p in apis_dir.iterdir() if p.is_dir()):
@@ -215,6 +202,7 @@ class ConfigManager:
                 
         return api_dirs
     
+    @ValidationDecorators.validate_service_name()
     def find_route_files(self, api_name: str, service_name: str = "ws_apis") -> List[Path]:
         """
         Find route files for an API.
@@ -226,13 +214,8 @@ class ConfigManager:
         Returns:
             List of Path objects for route files
         """
-        if service_name not in self.CONFIG_PATHS:
-            raise ValueError(f"Unknown service: {service_name}")
-        
         routes_dir = Path(os.path.join(self.CONFIG_ROOT, self.CONFIG_PATHS[service_name])) / api_name / "routes"
-        
-        if not routes_dir.is_dir():
-            raise FileNotFoundError(f"Routes directory not found: {routes_dir}")
+        ErrorHandler.validate_path_exists(routes_dir, "Routes directory")
             
         route_files = sorted(routes_dir.glob("**/*.json"))
         return route_files

@@ -7,6 +7,7 @@ from aws_cdk import aws_lambda as _lambda
 from constructs import Construct
 from cdk_project.configs.config_manager import ConfigManager
 from cdk_project.builders.policy_builder import apply_policies_to_role
+from cdk_project.configs.error_handler import ErrorHandler, ValidationDecorators
 
 # -----------------------------
 # Lambda creators & grants
@@ -21,19 +22,34 @@ def runtime_from(s: str) -> _lambda.Runtime:
         "nodejs18.x": _lambda.Runtime.NODEJS_18_X,
         "nodejs20.x": _lambda.Runtime.NODEJS_20_X,
     }
-    if s not in m:
-        raise ValueError(f"Unsupported runtime: {s}")
+    ErrorHandler.validate_enum_value(s, list(m.keys()), "runtime", "Lambda")
     return m[s]
 
+@ValidationDecorators.validate_required_config_fields(["code_path", "runtime", "handler", "memory", "timeout"], context="Lambda")
 def build_lambda_function(scope: Construct, logical_name: str, conf: dict) -> _lambda.Function:
+    """Build a Lambda function from configuration.
+    
+    Required fields in conf:
+    - code_path: string (path to lambda code)
+    - runtime: string (python3.12, nodejs18.x, etc.)
+    - handler: string (app.handler, index.handler, etc.)
+    - memory: int (memory size in MB)
+    - timeout: int (timeout in seconds)
+    
+    Optional fields:
+    - function_name: string
+    - env: dict (environment variables)
+    - description: string
+    - tags: dict
+    """
     fn = _lambda.Function(
         scope, f"Fn-{logical_name}",
         function_name=conf.get("function_name"),
-        runtime=runtime_from(conf.get("runtime")),
-        handler=conf.get("handler", "app.handler"),
+        runtime=runtime_from(conf["runtime"]),
+        handler=conf["handler"],
         code=_lambda.Code.from_asset(conf["code_path"]),
-        memory_size=int(conf.get("memory", 256)),
-        timeout=Duration.seconds(int(conf.get("timeout", 10))),
+        memory_size=int(conf["memory"]),
+        timeout=Duration.seconds(int(conf["timeout"])),
         environment={k: str(v) for k, v in (conf.get("env") or {}).items()},
         description=conf.get("description"),
     )
@@ -44,17 +60,28 @@ def build_lambda_function(scope: Construct, logical_name: str, conf: dict) -> _l
     return fn
 
 def grant_table_access(fn: _lambda.Function, grants: List[dict], tables: Dict[str, Any]) -> None:
+    """Grant DynamoDB table access to Lambda function.
+    
+    Each grant dict must have:
+    - table: string (table logical name)
+    - access: string (read, write, or readWrite)
+    """
     for g in grants or []:
+        ErrorHandler.validate_required_fields(g, ["table", "access"], "DynamoDB grant")
+        
         tname = g["table"]
-        access = (g.get("access") or "readWrite").lower()
+        access = g["access"].lower()
         table = tables.get(tname)
         if not table:
             raise KeyError(f"Table logical name '{tname}' not found for grants.")
+        
+        ErrorHandler.validate_enum_value(access, ["read", "write", "readwrite"], "access", "DynamoDB grant")
+        
         if access == "read":
             table.grant_read_data(fn)
         elif access == "write":
             table.grant_write_data(fn)
-        else:
+        elif access == "readwrite":
             table.grant_read_write_data(fn)
 
 # -----------------------------

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Optional, Union
 from aws_cdk import App, Stack
+from cdk_project.configs.error_handler import ErrorHandler
 
 @dataclass(frozen=True)
 class GithubCfg:
@@ -23,7 +24,7 @@ class EnvCfg:
         if self.connection_arn:
             return self.connection_arn
         if self.connection_id:
-            return f"arn:aws:codeconnections:{self.region}:{self.account_id}:connection/{self.connection_id}"
+            return f"arn:aws:codestar-connections:{self.region}:{self.account_id}:connection/{self.connection_id}"
         return None
 
 @dataclass(frozen=True)
@@ -76,8 +77,8 @@ def get_cfg(obj: Union[App, Stack]) -> OdysseyCfg:
     if not account_id: missing.append(f"{env_name}.account_id")
     if not owner:      missing.append("github.owner")
     if not repo:       missing.append("github.repo")
-    if missing:
-        raise ValueError(f"Missing required context keys in cdk.json: {', '.join(missing)}")
+    
+    ErrorHandler.validate_context_keys(missing, "cdk.json")
 
     return OdysseyCfg(
         env=EnvCfg(

@@ -1,83 +1,100 @@
 from __future__ import annotations
-from typing import Any, Iterable
-from aws_cdk import Stack
+from typing import Any, Dict, List
 from aws_cdk import aws_iam as iam
+from constructs import Construct
 from cdk_project.configs.config_manager import ConfigManager
+from cdk_project.configs.error_handler import ErrorHandler
 
-def _ensure_list(x: Any) -> list:
-    if x is None: return []
-    return x if isinstance(x, list) else [x]
+def _ensure_list(obj: Any) -> List[Any]:
+    """Ensure obj is a list, wrapping it if it's a single item."""
+    if isinstance(obj, list):
+        return obj
+    return [obj]
 
-def _attach_managed(role: iam.IRole, managed: Iterable[str]) -> None:
-    scope = Stack.of(role)
-    for p in managed or []:
-        arn = p if ":" in p else f"arn:aws:iam::aws:policy/{p}"
-        role.add_managed_policy(iam.ManagedPolicy.from_managed_policy_arn(scope, f"MP-{abs(hash(arn))}", arn))
+def _attach_managed(role: iam.IRole, policies: List[str]) -> None:
+    """Attach managed policies to a role."""
+    for policy in policies:
+        if policy.startswith("arn:"):
+            role.add_managed_policy(iam.ManagedPolicy.from_managed_policy_arn(role, f"Managed-{policy.split('/')[-1]}", policy))
+        else:
+            role.add_managed_policy(iam.ManagedPolicy.from_aws_managed_policy_name(policy))
 
 def _attach_inline(role: iam.IRole, name: str, statements: list[dict]) -> None:
-    scope = Stack.of(role)
-    doc = iam.PolicyDocument.from_json({"Version": "2012-10-17", "Statement": statements})
-    iam.Policy(scope, f"Inline-{name}", document=doc, roles=[role])
+    """Attach inline policy to a role."""
+    doc = iam.PolicyDocument(statements=[iam.PolicyStatement.from_json(s) for s in statements])
+    iam.Policy(role, f"Inline-{name}", document=doc, roles=[role])
 
 def _validate_config(raw: dict) -> None:
-    if not isinstance(raw, dict):
-        raise ValueError("Policy config must be a JSON object.")
+    """Validate policy configuration structure."""
+    ErrorHandler.validate_type(raw, dict, "policy config", "Policy")
+    
     allowed = {"managed", "inline"}
     extra = set(raw.keys()) - allowed
     if extra:
         raise ValueError(f"Unknown keys in policy config: {', '.join(sorted(extra))}")
-    if "managed" in raw and not isinstance(raw["managed"], (list, tuple)):
-        raise ValueError("'managed' must be a list of policy names/ARNs.")
+    
+    if "managed" in raw:
+        ErrorHandler.validate_type(raw["managed"], (list, tuple), "managed", "Policy")
+    
     inline = raw.get("inline", {})
-    if not isinstance(inline, dict):
-        raise ValueError("'inline' must be an object mapping policyName -> statements.")
+    ErrorHandler.validate_type(inline, dict, "inline", "Policy")
+    
     for name, stmts in inline.items():
-        if not isinstance(name, str) or not name:
-            raise ValueError("Inline policy names must be non-empty strings.")
+        ErrorHandler.validate_string_not_empty(name, "inline policy name", "Policy")
         lst = _ensure_list(stmts)
-        if not lst:
-            raise ValueError(f"Inline policy '{name}' must contain at least one statement.")
+        ErrorHandler.validate_list_not_empty(lst, f"inline policy '{name}'", "Policy")
+        
         for i, s in enumerate(lst):
-            if not isinstance(s, dict):
-                raise ValueError(f"Statement #{i} in '{name}' must be a JSON object.")
-            # Comprobación mínima de campos
-            if "Effect" not in s or "Action" not in s or ("Resource" not in s and "NotResource" not in s):
-                raise ValueError(f"Statement #{i} in '{name}' must include Effect, Action and Resource/NotResource.")
+            ErrorHandler.validate_type(s, dict, f"statement #{i} in '{name}'", "Policy")
+            
+            # Validate required fields for IAM statement
+            required_fields = ["Effect", "Action"]
+            ErrorHandler.validate_required_fields(s, required_fields, f"Statement #{i} in '{name}'")
+            
+            # Check for Resource or NotResource
+            if "Resource" not in s and "NotResource" not in s:
+                raise ValueError(f"Statement #{i} in '{name}' must include Resource or NotResource")
 
 def apply_policies_to_role(role: iam.IRole, filename: str, base_dir: str = None) -> None:
-    """
-    Load policy config file and apply managed/inline policies to the role.
+    """Apply policies from a JSON file to a role.
     
-    Args:
-        role: IAM role to attach policies to
-        filename: Policy config filename (e.g., "pipeline.json")
-        base_dir: Optional base directory (uses config manager if None)
-    
-    Policy config format:
+    The JSON file should have this structure:
     {
-      "managed": ["AWSLambdaBasicExecutionRole", "arn:aws:iam::aws:policy/SomePolicy"],
+      "managed": ["AmazonS3ReadOnlyAccess", "arn:aws:iam::...:policy/MyPolicy"],
       "inline": {
-        "CustomPolicy": [
+        "MyInlinePolicy": [
           {
             "Effect": "Allow",
             "Action": ["s3:GetObject"],
-            "Resource": ["arn:aws:s3:::${BucketName}/*"]
+            "Resource": ["arn:aws:s3:::my-bucket/*"]
           }
         ]
       }
     }
     """
-    stack = Stack.of(role)
-    config_mgr = ConfigManager(stack)
-
-    raw = config_mgr.load_config("policies", filename, expand_vars=True)
-
+    config_mgr = ConfigManager(role.stack)
+    
+    # Load policy configuration
+    if base_dir:
+        # Legacy support - load from specific directory
+        import os
+        file_path = os.path.join(base_dir, filename)
+        ErrorHandler.validate_file_exists(file_path, "Policy file")
+        with open(file_path, "r", encoding="utf-8") as f:
+            import json
+            raw = json.load(f)
+        raw = config_mgr.expand_placeholders(raw)
+    else:
+        # Use ConfigManager to load policy
+        raw = config_mgr.load_config("policies", filename)
+    
+    # Validate configuration
     _validate_config(raw)
-
-    # Attach managed policies
-    _attach_managed(role, raw.get("managed", []))
-
-    # Attach inline policies
-    for name, stmts in (raw.get("inline") or {}).items():
-        stmts_expanded = _ensure_list(stmts)
-        _attach_inline(role, name, stmts_expanded)
+    
+    # Apply managed policies
+    if "managed" in raw:
+        _attach_managed(role, raw["managed"])
+    
+    # Apply inline policies
+    for name, statements in raw.get("inline", {}).items():
+        _attach_inline(role, name, _ensure_list(statements))

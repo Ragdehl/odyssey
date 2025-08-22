@@ -37,6 +37,7 @@ class ChatBackendStack(Stack):
         dyn = DynamoTables(
             self, "Dynamo",
             env_name=env_name,
+            config_files=["messages.json"],
         )
         tables = dyn.tables  # e.g. {"messages": Table, "sessions": Table}
 

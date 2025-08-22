@@ -10,31 +10,34 @@ from aws_cdk import aws_iam as iam
 from constructs import Construct
 from cdk_project.configs.config_manager import ConfigManager
 from cdk_project.builders.policy_builder import apply_policies_to_role
+from cdk_project.configs.error_handler import ErrorHandler, ValidationDecorators
 
 # -----------------------------
 # Core builders
 # -----------------------------
 
+@ValidationDecorators.validate_required_config_fields(["name", "route_selection_expression"], context="WebSocket API")
 def build_websocket_api(scope: Construct, logical_name: str, conf: dict) -> apigwv2.WebSocketApi:
     """Create a WebSocket API with a route selection expression.
 
     Args:
         scope: CDK construct scope
         logical_name: ID suffix used for CDK logical names
-        conf: Parsed api.json dict. Supports keys:
+        conf: Parsed api.json dict. Required keys:
             - name: string (API name in console)
-            - route_selection_expression: string (default: "$request.body.action")
+            - route_selection_expression: string
     Returns:
         apigwv2.WebSocketApi instance
     """
     return apigwv2.WebSocketApi(
         scope, f"WsApi-{logical_name}",
-        api_name=conf.get("name", f"odyssey-ws-{logical_name}"),
-        route_selection_expression=conf.get("route_selection_expression", "$request.body.action"),
+        api_name=conf["name"],
+        route_selection_expression=conf["route_selection_expression"],
         connect_route_options=None,  # routes are added later from JSON files
     )
 
 
+@ValidationDecorators.validate_required_config_fields(["stage"], context="WebSocket API")
 def build_websocket_stage(scope: Construct, api: apigwv2.WebSocketApi, conf: dict) -> apigwv2.WebSocketStage:
     """Create a WebSocket stage using config.stage.*
 
@@ -44,15 +47,13 @@ def build_websocket_stage(scope: Construct, api: apigwv2.WebSocketApi, conf: dic
         "auto_deploy": true
       }
     """
-    stage_conf = conf.get("stage", {})
-    stage_name = stage_conf.get("name", "$default")
-    auto_deploy = bool(stage_conf.get("auto_deploy", True))
+    ErrorHandler.validate_field_structure(conf, "stage", ["name", "auto_deploy"], "WebSocket API configuration")
 
     return apigwv2.WebSocketStage(
         scope, f"WsStage-{api.node.id}",
         web_socket_api=api,
-        stage_name=stage_name,
-        auto_deploy=auto_deploy,
+        stage_name=conf["stage"]["name"],
+        auto_deploy=conf["stage"]["auto_deploy"],
     )
 
 
@@ -66,11 +67,9 @@ def lambda_integration(handler) -> apigwv2_integrations.WebSocketLambdaIntegrati
 def add_routes_from_dir(scope: Construct, api: apigwv2.WebSocketApi, lambdas: Dict[str, Any], config_mgr: ConfigManager, api_name: str) -> List[str]:
     """Add routes by scanning a folder of JSON files.
 
-    Each file is a dict with at least:
+    Each file is a dict with required fields:
       - route_key: "$connect" | "$disconnect" | "$default" | "<custom>"
-      - integration: { "type": "lambda", "lambda_name": "<LambdaFleet name>", "timeout": 10 }
-
-    The file name stem is used as default route_key when not present (e.g. sendMessage.json -> "sendMessage").
+      - integration: { "type": "lambda", "lambda_name": "<LambdaFleet name>" }
 
     Returns a list of route keys created.
     """
@@ -82,14 +81,22 @@ def add_routes_from_dir(scope: Construct, api: apigwv2.WebSocketApi, lambdas: Di
     for route_file in route_files:
         # Load route config using unified method
         rc = config_mgr.load_config("ws_routes", route_file.name)
-        route_key = rc.get("route_key") or route_file.stem
-        integ = rc.get("integration", {})
-        if (integ.get("type") or "lambda").lower() != "lambda":
-            raise ValueError(f"Only lambda integrations supported for now. File: {route_file}")
+        
+        # Validate required fields
+        ErrorHandler.validate_required_fields(rc, ["route_key", "integration"], f"Route configuration in {route_file}")
+        
+        route_key = rc["route_key"]
+        integ = rc["integration"]
+        
+        # Validate integration structure
+        ErrorHandler.validate_field_structure(rc, "integration", ["type", "lambda_name"], f"Route configuration in {route_file}")
+        
+        # Validate integration type
+        ErrorHandler.validate_enum_value(integ["type"], ["lambda"], "type", f"Route integration in {route_file}")
 
-        lambda_name = integ.get("lambda_name")
-        if not lambda_name or lambda_name not in lambdas:
-            raise KeyError(f"lambda_name '{lambda_name}' not found in provided lambdas map. File: {route_file}")
+        # Validate lambda name
+        lambda_name = integ["lambda_name"]
+        ErrorHandler.validate_lambda_exists(lambda_name, lambdas, f"Route configuration in {route_file}")
 
         handler = lambdas[lambda_name]
         integration = lambda_integration(handler)
@@ -105,13 +112,11 @@ def grant_manage_connections(api: apigwv2.WebSocketApi, lambdas: Dict[str, Any],
     Lambdas that reply to clients via the @connections endpoint need this.
     """
     for lambda_name in names or []:
-        fn = lambdas.get(lambda_name)
-        if not fn:
-            raise KeyError(f"Lambda '{lambda_name}' not found to grant ManageConnections")
+        ErrorHandler.validate_lambda_exists(lambda_name, lambdas, "ManageConnections grant")
 
         # Use config manager to load the policy
         apply_policies_to_role(
-            fn.role,
+            lambdas[lambda_name].role,
             "manage_connections.json"
         )
 
