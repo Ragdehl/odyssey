@@ -1,44 +1,13 @@
 from __future__ import annotations
-import json, os, re
-from pathlib import Path
-from typing import Any, Mapping, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from aws_cdk import (
     Stack, RemovalPolicy, Duration, Tags
 )
 from aws_cdk import aws_kms as kms
 from aws_cdk import aws_dynamodb as dynamodb
 from constructs import Construct
-from cdk_project.configs.odyssey_cfg import get_cfg
-
-_VAR = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
-
-# -----------------------------
-# Generic helpers
-# -----------------------------
-
-def expand_placeholders(obj: Any, vars: Mapping[str, str]) -> Any:
-    if isinstance(obj, str):  return _VAR.sub(lambda m: str(vars.get(m.group(1), m.group(0))), obj)
-    if isinstance(obj, list): return [expand_placeholders(x, vars) for x in obj]
-    if isinstance(obj, dict): return {k: expand_placeholders(v, vars) for k, v in obj.items()}
-    return obj
-
-def load_json_config(path: str, vars: Mapping[str, str]) -> dict:
-    if not os.path.isfile(path):
-        raise FileNotFoundError(f"Config not found: {path}")
-    with open(path, "r", encoding="utf-8") as f:
-        raw = json.load(f)
-    return expand_placeholders(raw, vars)
-
-# New helpers for file-per-table mode
-
-def list_json_files(config_dir: str, exclude: Optional[set[str]] = None) -> List[str]:
-    p = Path(config_dir)
-    if not p.is_dir():
-        raise FileNotFoundError(f"Config directory not found: {config_dir}")
-    files = sorted(str(fp) for fp in p.glob("*.json"))
-    if exclude:
-        files = [f for f in files if Path(f).name not in exclude]
-    return files
+from cdk_project.configs.config_manager import ConfigManager
+from pathlib import Path
 
 # -----------------------------
 # Type mappers
@@ -138,7 +107,7 @@ class DynamoTables(Construct):
 
     Usage options:
       1) Provide a directory with one JSON per table:
-         DynamoTables(..., env_name=env, config_dir="cdk_project/configs/tables", defaults_file="cdk_project/configs/dynamodb.defaults.json")
+         DynamoTables(..., env_name=env, config_dir="tables", defaults_file="dynamodb.defaults.json")
 
          Each table JSON looks like:
          {
@@ -158,7 +127,7 @@ class DynamoTables(Construct):
          The optional defaults_file contains a JSON object with default keys merged into each table config.
 
       2) Provide explicit list of files:
-         DynamoTables(..., env_name=env, config_files=["configs/tables/messages.json","configs/tables/sessions.json"]) 
+         DynamoTables(..., env_name=env, config_files=["messages.json","sessions.json"]) 
     """
     def __init__(
         self,
@@ -167,34 +136,24 @@ class DynamoTables(Construct):
         *,
         env_name: str,
         config_files: Optional[List[str]] = None,
-        config_dir: Optional[str] = None,
         defaults_file: Optional[str] = None,
     ) -> None:
         super().__init__(scope, construct_id)
-        stack = Stack.of(self)
-        cfg = get_cfg(stack)
-        vars = cfg.vars(stack)
+        
+        self.config_mgr = ConfigManager(Stack.of(self))
 
-        # Load defaults (if provided). Format: a flat dict of default keys/values.
-        defaults: dict = {}
-        if defaults_file:
-            defaults = load_json_config(defaults_file, vars) or {}
-
-        # Gather table config files
-        files: List[str] = []
-        if config_files:
-            files.extend(config_files)
-        if config_dir:
-            exclude = {Path(defaults_file).name} if defaults_file else set()
-            files.extend(list_json_files(config_dir, exclude=exclude))
-        if not files:
-            raise ValueError("You must provide either 'config_files' or 'config_dir' with at least one table config JSON.")
+        # Use ConfigManager to load all table configurations
+        table_configs = self.config_mgr.load_table_configs(
+            config_files=config_files if config_files else None,
+            defaults_file=defaults_file
+        )
+        
+        if not table_configs:
+            raise ValueError("You must provide either 'config_files' with at least one table config JSON.")
 
         # Build tables
         self.tables: Dict[str, dynamodb.Table] = {}
-        for path in files:
-            conf = load_json_config(path, vars)
-            merged = {**defaults, **conf}
-            logical_name = merged.get("name") or Path(path).stem
-            table = build_table(self, logical_name, merged, env_name=env_name)
+        for filepath, conf in table_configs:
+            logical_name = conf.get("name") or Path(filepath).stem
+            table = build_table(self, logical_name, conf, env_name=env_name)
             self.tables[logical_name] = table

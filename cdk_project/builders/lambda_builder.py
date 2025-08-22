@@ -1,69 +1,12 @@
 from __future__ import annotations
-import json, os, re
+import os
 from pathlib import Path
-from typing import Any, Mapping, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from aws_cdk import Duration, Stack, Tags
 from aws_cdk import aws_lambda as _lambda
 from constructs import Construct
-from cdk_project.configs.odyssey_cfg import get_cfg
+from cdk_project.configs.config_manager import ConfigManager
 from cdk_project.builders.policy_builder import apply_policies_to_role
-
-_VAR = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
-
-# -----------------------------
-# Generic helpers
-# -----------------------------
-
-def expand_placeholders(obj: Any, vars: Mapping[str, str]) -> Any:
-    if isinstance(obj, str):  return _VAR.sub(lambda m: str(vars.get(m.group(1), m.group(0))), obj)
-    if isinstance(obj, list): return [expand_placeholders(x, vars) for x in obj]
-    if isinstance(obj, dict): return {k: expand_placeholders(v, vars) for k, v in obj.items()}
-    return obj
-
-def load_json(path: Path) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-# -----------------------------
-# Config loading (multi JSON per lambda folder)
-# -----------------------------
-
-def find_lambda_dirs(root: Path) -> List[Path]:
-    if not root.is_dir():
-        raise FileNotFoundError(f"Lambda root not found: {root}")
-    out: List[Path] = []
-    for d in sorted(p for p in root.iterdir() if p.is_dir()):
-        if (d / "app.py").is_file():
-            out.append(d)
-    return out
-
-def load_lambda_config_from_folder(folder: Path, vars: Mapping[str, str]) -> dict:
-    """
-    Merge all JSON files that match config*.json in lexicographic order.
-    Later files override earlier keys. Placeholders ${...} are expanded.
-    Minimum defaults are applied if no JSON provides them.
-    """
-    # Gather config JSONs
-    config_files = sorted(folder.glob("config*.json"))
-    conf: dict = {}
-
-    # Merge in order
-    for cf in config_files:
-        data = load_json(cf)
-        conf.update(data)
-
-    # Defaults
-    conf.setdefault("name", folder.name)
-    conf.setdefault("runtime", "python3.12")
-    conf.setdefault("memory", 256)
-    conf.setdefault("timeout", 10)
-    conf.setdefault("handler", "app.handler")
-
-    # Add code path and expand placeholders
-    conf["code_path"] = str(folder.resolve())
-    conf = expand_placeholders(conf, vars)
-
-    return conf
 
 # -----------------------------
 # Lambda creators & grants
@@ -114,22 +57,6 @@ def grant_table_access(fn: _lambda.Function, grants: List[dict], tables: Dict[st
         else:
             table.grant_read_write_data(fn)
 
-
-def resolve_policy_file(policy_file: Optional[str], folder: Path) -> Optional[str]:
-    if not policy_file:
-        return None
-    p = Path(policy_file)
-    if not p.is_absolute():
-        # try folder local first
-        local = (folder / policy_file)
-        if local.is_file():
-            return str(local)
-        # else allow relative to configs dir for backwards compat
-        alt = Path("cdk_project/configs") / policy_file
-        if alt.is_file():
-            return str(alt)
-    return str(p)
-
 # -----------------------------
 # Fleet construct (single way: per-folder configs)
 # -----------------------------
@@ -147,41 +74,22 @@ class LambdaFleet(Construct):
     """
     def __init__(self, scope: Construct, construct_id: str, *, env_name: str, tables: Dict[str, Any], code_root: str = "lambda_src") -> None:
         super().__init__(scope, construct_id)
-        stack = Stack.of(self)
-        cfg = get_cfg(stack)
-        vars = cfg.vars(stack, extra={"EnvName": env_name})
-
-        root = Path(code_root)
+        
+        self.config_mgr = ConfigManager(Stack.of(self))
         self.functions: Dict[str, _lambda.Function] = {}
 
-        for folder in find_lambda_dirs(root):
-            conf = load_lambda_config_from_folder(folder, vars)
+        for folder in self.config_mgr.find_lambda_dirs(code_root):
+            conf = self.config_mgr.load_lambda_config_from_folder(folder, extra_vars={"EnvName": env_name})
             logical_name = conf["name"]
 
             fn = build_lambda_function(self, logical_name, conf)
 
             # Attach inline/managed policies if requested
-            policy_file = resolve_policy_file(conf.get("policy_file"), folder)
+            policy_file = conf.get("policy_file")
             if policy_file:
-                # Use the filename only; the builder expects file relative name & base_dir
-                apply_policies_to_role(fn.role, os.path.basename(policy_file), base_dir=str(Path(policy_file).parent))
+                apply_policies_to_role(fn.role, policy_file)
 
             # Dynamo grants (optional)
             grant_table_access(fn, conf.get("dynamodb_access", []), tables)
 
             self.functions[logical_name] = fn
-
-# -----------------------------
-# Example stack usage
-# -----------------------------
-# from cdk_project.builders.dynamodb_builder import DynamoTables
-# from cdk_project.builders.lambda_per_folder import LambdaFleet
-#
-# dyn = DynamoTables(self, "Dynamo", env_name=env_name, config_dir="cdk_project/configs/tables", defaults_file="cdk_project/configs/dynamodb.defaults.json")
-# lambdas = LambdaFleet(self, "Lambdas", env_name=env_name, tables=dyn.tables, code_root="lambda_src").functions
-#
-# # Example: access a function by folder/name
-# chat_fn = lambdas["chat"]
-#
-# # If you prefer to inject some env vars at stack-time:
-# # chat_fn.add_environment("TABLE_NAME", dyn.tables["messages"].table_name)

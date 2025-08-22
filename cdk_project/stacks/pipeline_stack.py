@@ -68,5 +68,4 @@ class OdysseyPipelineStack(Stack):
         apply_policies_to_role(
             pipeline.pipeline.role,
             "pipeline.json",
-            base_dir="cdk_project/configs/iam/policies",
         )

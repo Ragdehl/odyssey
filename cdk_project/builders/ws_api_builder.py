@@ -1,7 +1,5 @@
 from __future__ import annotations
-import json, os, re
-from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List
 
 from aws_cdk import (
     Stack, CfnOutput
@@ -10,24 +8,8 @@ from aws_cdk import aws_apigatewayv2 as apigwv2
 from aws_cdk import aws_apigatewayv2_integrations as apigwv2_integrations
 from aws_cdk import aws_iam as iam
 from constructs import Construct
-from cdk_project.configs.odyssey_cfg import get_cfg
+from cdk_project.configs.config_manager import ConfigManager
 from cdk_project.builders.policy_builder import apply_policies_to_role
-
-_VAR = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
-
-# -----------------------------
-# Helpers
-# -----------------------------
-
-def expand_placeholders(obj: Any, vars: Mapping[str, str]) -> Any:
-    if isinstance(obj, str):  return _VAR.sub(lambda m: str(vars.get(m.group(1), m.group(0))), obj)
-    if isinstance(obj, list): return [expand_placeholders(x, vars) for x in obj]
-    if isinstance(obj, dict): return {k: expand_placeholders(v, vars) for k, v in obj.items()}
-    return obj
-
-def load_json(path: Path) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 # -----------------------------
 # Core builders
@@ -81,7 +63,7 @@ def lambda_integration(handler) -> apigwv2_integrations.WebSocketLambdaIntegrati
     )
 
 
-def add_routes_from_dir(scope: Construct, api: apigwv2.WebSocketApi, lambdas: Dict[str, Any], routes_dir: Path) -> List[str]:
+def add_routes_from_dir(scope: Construct, api: apigwv2.WebSocketApi, lambdas: Dict[str, Any], config_mgr: ConfigManager, api_name: str) -> List[str]:
     """Add routes by scanning a folder of JSON files.
 
     Each file is a dict with at least:
@@ -93,16 +75,20 @@ def add_routes_from_dir(scope: Construct, api: apigwv2.WebSocketApi, lambdas: Di
     Returns a list of route keys created.
     """
     created: List[str] = []
-    for f in sorted(routes_dir.glob("**/*.json")):
-        rc = load_json(f)
-        route_key = rc.get("route_key") or f.stem
+    
+    # Use ConfigManager to find route files
+    route_files = config_mgr.find_route_files(api_name)
+    
+    for route_file in route_files:
+        rc = config_mgr.load_route_config(route_file)
+        route_key = rc.get("route_key") or route_file.stem
         integ = rc.get("integration", {})
         if (integ.get("type") or "lambda").lower() != "lambda":
-            raise ValueError(f"Only lambda integrations supported for now. File: {f}")
+            raise ValueError(f"Only lambda integrations supported for now. File: {route_file}")
 
         lambda_name = integ.get("lambda_name")
         if not lambda_name or lambda_name not in lambdas:
-            raise KeyError(f"lambda_name '{lambda_name}' not found in provided lambdas map. File: {f}")
+            raise KeyError(f"lambda_name '{lambda_name}' not found in provided lambdas map. File: {route_file}")
 
         handler = lambdas[lambda_name]
         integration = lambda_integration(handler)
@@ -112,7 +98,7 @@ def add_routes_from_dir(scope: Construct, api: apigwv2.WebSocketApi, lambdas: Di
     return created
 
 
-def grant_manage_connections(api: apigwv2.WebSocketApi, lambdas: Dict[str, Any], names: List[str], *, region: str, account: str) -> None:
+def grant_manage_connections(api: apigwv2.WebSocketApi, lambdas: Dict[str, Any], names: List[str], config_mgr: ConfigManager) -> None:
     """Grant execute-api:ManageConnections on this API to selected lambdas.
 
     Lambdas that reply to clients via the @connections endpoint need this.
@@ -122,11 +108,10 @@ def grant_manage_connections(api: apigwv2.WebSocketApi, lambdas: Dict[str, Any],
         if not fn:
             raise KeyError(f"Lambda '{lambda_name}' not found to grant ManageConnections")
 
-        # Note: we pass the ApiId at runtime using extra_vars
+        # Use config manager to load the policy
         apply_policies_to_role(
             fn.role,
-            "manage_connections.json",
-            base_dir="cdk_project/configs/iam/policies",
+            "manage_connections.json"
         )
 
 # -----------------------------
@@ -146,7 +131,7 @@ class WebSocketApis(Construct):
             self, "WsApis",
             env_name=env_name,
             lambdas=lambdas,                                # dict[str, _lambda.Function] from LambdaFleet
-            config_root="cdk_project/configs/apis/ws"      # root folder with one subfolder per API
+            config_root="ws"                               # config type for WebSocket APIs
         )
         # Access endpoints: ws.endpoints["chat"] -> wss URL
 
@@ -157,39 +142,29 @@ class WebSocketApis(Construct):
                  *,
                  env_name: str,
                  lambdas: Dict[str, Any],
-                 config_root: str = "cdk_project/configs/apis/ws") -> None:
+                 config_root: str = "ws") -> None:
         super().__init__(scope, construct_id)
 
-        stack = Stack.of(self)
-        cfg = get_cfg(stack)
-        vars = cfg.vars(stack)
-
-        root = Path(config_root)
-        if not root.is_dir():
-            raise FileNotFoundError(f"WebSocket config root not found: {config_root}")
-
+        self.config_mgr = ConfigManager(Stack.of(self))
         self.apis: Dict[str, apigwv2.WebSocketApi] = {}
         self.stages: Dict[str, apigwv2.WebSocketStage] = {}
         self.endpoints: Dict[str, str] = {}
 
-        for api_dir in sorted(p for p in root.iterdir() if p.is_dir()):
-            name = api_dir.name
-            api_json = api_dir / "api.json"
-            routes_dir = api_dir / "routes"
-            if not api_json.is_file():
-                raise FileNotFoundError(f"Missing api.json in {api_dir}")
-            if not routes_dir.is_dir():
-                raise FileNotFoundError(f"Missing routes/ directory in {api_dir}")
+        # Use ConfigManager to find API directories
+        api_dirs = self.config_mgr.find_api_directories()
 
-            # Load and expand api.json
-            api_conf = expand_placeholders(load_json(api_json), vars)
+        for api_dir in api_dirs:
+            name = api_dir.name
+
+            # Load API configuration using ConfigManager
+            api_conf = self.config_mgr.load_api_config(api_dir)
 
             # 1) API
             api = build_websocket_api(self, name, api_conf)
             self.apis[name] = api
 
             # 2) Routes
-            route_keys = add_routes_from_dir(self, api, lambdas, routes_dir)
+            route_keys = add_routes_from_dir(self, api, lambdas, self.config_mgr, name)
 
             # 3) Stage
             stage = build_websocket_stage(self, api, api_conf)
@@ -198,9 +173,10 @@ class WebSocketApis(Construct):
             # 4) Optional: permissions to post to connections
             mc = api_conf.get("manage_connections_for", [])
             if mc:
-                grant_manage_connections(api, lambdas, mc, region=stack.region, account=stack.account)
+                grant_manage_connections(api, lambdas, mc, self.config_mgr)
 
             # 5) Output endpoint
+            stack = Stack.of(self)
             endpoint = f"wss://{api.api_id}.execute-api.{stack.region}.amazonaws.com/{stage.stage_name}"
             self.endpoints[name] = endpoint
             CfnOutput(self, f"WsEndpoint-{name}", value=endpoint)

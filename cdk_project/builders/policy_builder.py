@@ -1,20 +1,8 @@
 from __future__ import annotations
-import json, os, re
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable
 from aws_cdk import Stack
 from aws_cdk import aws_iam as iam
-from cdk_project.configs.odyssey_cfg import get_cfg
-
-_VAR = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
-
-def _expand(obj: Any, vars: Mapping[str, str]) -> Any:
-    if isinstance(obj, str):
-        return _VAR.sub(lambda m: str(vars.get(m.group(1), m.group(0))), obj)
-    if isinstance(obj, list):
-        return [_expand(x, vars) for x in obj]
-    if isinstance(obj, dict):
-        return {k: _expand(v, vars) for k, v in obj.items()}
-    return obj
+from cdk_project.configs.config_manager import ConfigManager
 
 def _ensure_list(x: Any) -> list:
     if x is None: return []
@@ -56,28 +44,40 @@ def _validate_config(raw: dict) -> None:
             if "Effect" not in s or "Action" not in s or ("Resource" not in s and "NotResource" not in s):
                 raise ValueError(f"Statement #{i} in '{name}' must include Effect, Action and Resource/NotResource.")
 
-def apply_policies_to_role(role: iam.IRole, file: str, base_dir: str = "configs") -> None:
+def apply_policies_to_role(role: iam.IRole, filename: str) -> None:
     """
-    Carga {base_dir}/{file}, expande placeholders con odyssey_cfg y adjunta:
-      - 'managed': lista de políticas gestionadas (nombre corto o ARN completo)
-      - 'inline':  mapa { nombre -> [statements] }  (sin 'Version'/'Statement', el builder lo añade)
-    Placeholders disponibles: ${EnvName}, ${AccountId}, ${Region}, ${Partition}, ${Branch}, ${ConnectionArn}
+    Load policy config file and apply managed/inline policies to the role.
+    
+    Args:
+        role: IAM role to attach policies to
+        filename: Policy config filename (e.g., "pipeline.json")
+        base_dir: Optional base directory (uses config manager if None)
+    
+    Policy config format:
+    {
+      "managed": ["AWSLambdaBasicExecutionRole", "arn:aws:iam::aws:policy/SomePolicy"],
+      "inline": {
+        "CustomPolicy": [
+          {
+            "Effect": "Allow",
+            "Action": ["s3:GetObject"],
+            "Resource": ["arn:aws:s3:::${BucketName}/*"]
+          }
+        ]
+      }
+    }
     """
     stack = Stack.of(role)
-    cfg = get_cfg(stack)
-    vars = cfg.vars(stack)
-
-    path = os.path.join(base_dir, file)
-    if not os.path.isfile(path):
-        raise FileNotFoundError(f"Policy config not found: {path}")
-
-    with open(path, "r", encoding="utf-8") as f:
-        raw = json.load(f)
+    config_mgr = ConfigManager(stack)
+    
+    raw = config_mgr.load_config("policies", filename, expand_vars=True)
 
     _validate_config(raw)
 
+    # Attach managed policies
     _attach_managed(role, raw.get("managed", []))
 
+    # Attach inline policies
     for name, stmts in (raw.get("inline") or {}).items():
-        stmts_expanded = _expand(_ensure_list(stmts), vars)
+        stmts_expanded = _ensure_list(stmts)
         _attach_inline(role, name, stmts_expanded)

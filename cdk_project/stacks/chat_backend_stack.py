@@ -37,8 +37,8 @@ class ChatBackendStack(Stack):
         dyn = DynamoTables(
             self, "Dynamo",
             env_name=env_name,
-            config_dir="cdk_project/configs/tables",
-            defaults_file="cdk_project/configs/dynamodb.defaults.json",
+            config_dir="tables",
+            defaults_file="dynamodb.defaults.json",
         )
         tables = dyn.tables  # e.g. {"messages": Table, "sessions": Table}
 
@@ -59,7 +59,7 @@ class ChatBackendStack(Stack):
             self, "WsApis",
             env_name=env_name,
             lambdas=lambdas,
-            config_root="cdk_project/configs/apis/ws",
+            config_root="ws",
         )
 
         # --- Optional: explicitly enforce ManageConnections policy for a lambda on a given API ---
