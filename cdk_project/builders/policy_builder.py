@@ -44,7 +44,7 @@ def _validate_config(raw: dict) -> None:
             if "Effect" not in s or "Action" not in s or ("Resource" not in s and "NotResource" not in s):
                 raise ValueError(f"Statement #{i} in '{name}' must include Effect, Action and Resource/NotResource.")
 
-def apply_policies_to_role(role: iam.IRole, filename: str) -> None:
+def apply_policies_to_role(role: iam.IRole, filename: str, base_dir: str = None) -> None:
     """
     Load policy config file and apply managed/inline policies to the role.
     
@@ -69,7 +69,7 @@ def apply_policies_to_role(role: iam.IRole, filename: str) -> None:
     """
     stack = Stack.of(role)
     config_mgr = ConfigManager(stack)
-    
+
     raw = config_mgr.load_config("policies", filename, expand_vars=True)
 
     _validate_config(raw)

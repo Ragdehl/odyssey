@@ -80,7 +80,8 @@ def add_routes_from_dir(scope: Construct, api: apigwv2.WebSocketApi, lambdas: Di
     route_files = config_mgr.find_route_files(api_name)
     
     for route_file in route_files:
-        rc = config_mgr.load_route_config(route_file)
+        # Load route config using unified method
+        rc = config_mgr.load_config("ws_routes", route_file.name)
         route_key = rc.get("route_key") or route_file.stem
         integ = rc.get("integration", {})
         if (integ.get("type") or "lambda").lower() != "lambda":
@@ -151,13 +152,13 @@ class WebSocketApis(Construct):
         self.endpoints: Dict[str, str] = {}
 
         # Use ConfigManager to find API directories
-        api_dirs = self.config_mgr.find_api_directories()
+        api_dirs = self.config_mgr.find_api_dirs("ws_apis")
 
         for api_dir in api_dirs:
             name = api_dir.name
 
-            # Load API configuration using ConfigManager
-            api_conf = self.config_mgr.load_api_config(api_dir)
+            # Load API configuration using unified method
+            api_conf = self.config_mgr.load_config("ws_apis", "api.json")
 
             # 1) API
             api = build_websocket_api(self, name, api_conf)
@@ -165,6 +166,7 @@ class WebSocketApis(Construct):
 
             # 2) Routes
             route_keys = add_routes_from_dir(self, api, lambdas, self.config_mgr, name)
+            self.route_keys = route_keys
 
             # 3) Stage
             stage = build_websocket_stage(self, api, api_conf)

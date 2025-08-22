@@ -1,7 +1,7 @@
 from __future__ import annotations
 import json, os, re
 from pathlib import Path
-from typing import Any, Mapping, Dict, List, Optional
+from typing import Any, Mapping, Dict, List, Optional, Union
 from aws_cdk import Stack
 from cdk_project.configs.odyssey_cfg import get_cfg
 
@@ -11,11 +11,7 @@ class ConfigManager:
     """
     Centralized configuration management for Odyssey CDK project.
     
-    Handles:
-    - Path resolution for different config types (policies, tables, APIs, etc.)
-    - JSON file loading with placeholder expansion
-    - Default file merging
-    - Directory scanning for config files
+    Simplified API with unified methods for all configuration loading scenarios.
     """
     
     # Root config directory
@@ -24,7 +20,7 @@ class ConfigManager:
     # Config type mappings to subdirectories
     CONFIG_PATHS = {
         "policies": "iam/policies",
-        "tables": "tables", 
+        "dynamodb": "tables", 
         "ws_apis": "apis/ws",
         "ws_routes": "apis/ws/routes",
         "lambda_configs": "lambda_configs",
@@ -35,26 +31,6 @@ class ConfigManager:
         self.stack = stack
         self.cfg = get_cfg(stack)
         self.vars = self.cfg.vars(stack)
-    
-    def get_config_path(self, config_type: str, filename: str = None) -> str:
-        """
-        Get the full path to a config file.
-        
-        Args:
-            config_type: Type of config (policies, tables, ws_apis, etc.)
-            filename: Optional filename, if None returns the directory path
-            
-        Returns:
-            Full path to the config file or directory
-        """
-        if config_type not in self.CONFIG_PATHS:
-            raise ValueError(f"Unknown config type: {config_type}")
-        
-        base_path = os.path.join(self.CONFIG_ROOT, self.CONFIG_PATHS[config_type])
-        
-        if filename:
-            return os.path.join(base_path, filename)
-        return base_path
     
     def expand_placeholders(self, obj: Any, vars: Mapping[str, str] = None) -> Any:
         """
@@ -78,86 +54,77 @@ class ConfigManager:
             return {k: self.expand_placeholders(v, vars) for k, v in obj.items()}
         return obj
     
-    def load_json(self, filepath: str, expand_vars: bool = True) -> dict:
+    def load_config(self, service_name: str, file_name: Optional[str] = None, expand_vars: bool = True, defaults_file: Optional[str] = None) -> Union[dict, List[dict], List[tuple[str, dict]]]:
         """
-        Load and parse a JSON file, optionally expanding placeholders.
+        Unified method to load configurations for any service.
         
         Args:
-            filepath: Path to the JSON file
-            expand_vars: Whether to expand placeholders in the loaded JSON
-            
-        Returns:
-            Parsed JSON as dict
-        """
-        if not os.path.isfile(filepath):
-            raise FileNotFoundError(f"Config file not found: {filepath}")
-            
-        with open(filepath, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            
-        if expand_vars:
-            data = self.expand_placeholders(data)
-            
-        return data
-    
-    def load_config(self, config_type: str, filename: str, expand_vars: bool = True) -> dict:
-        """
-        Load a config file by type and filename.
-        
-        Args:
-            config_type: Type of config (policies, tables, etc.)
-            filename: Name of the config file
+            service_name: Type of service (policies, tables, ws_apis, etc.)
+            file_name: Optional specific file to load. If None, loads all files in directory
             expand_vars: Whether to expand placeholders
+            defaults_file: Optional defaults file to merge with each config
             
         Returns:
-            Parsed JSON config
+            - Single dict if file_name is provided
+            - List of dicts if loading all files from directory
+            - List of tuples (filepath, dict) for tables with defaults
         """
-        filepath = self.get_config_path(config_type, filename)
-        return self.load_json(filepath, expand_vars)
-    
-    def load_config_with_defaults(self, config_type: str, filename: str, defaults_file: str = None) -> dict:
-        """
-        Load a config file and merge with defaults if provided.
+        if service_name not in self.CONFIG_PATHS:
+            raise ValueError(f"Unknown service: {service_name}")
         
-        Args:
-            config_type: Type of config
-            filename: Name of the config file
-            defaults_file: Optional defaults file to merge
-            
-        Returns:
-            Merged config dict
-        """
-        config = self.load_config(config_type, filename)
+        base_path = os.path.join(self.CONFIG_ROOT, self.CONFIG_PATHS[service_name])
         
+        # Load defaults if provided
+        defaults: dict = {}
         if defaults_file:
-            defaults = self.load_config(config_type, defaults_file)
-            config = {**defaults, **config}  # Config overrides defaults
-            
-        return config
-    
-    def list_config_files(self, config_type: str, exclude: Optional[set[str]] = None) -> List[str]:
-        """
-        List all JSON files in a config directory.
+            defaults_path = os.path.join(base_path, defaults_file)
+            if os.path.isfile(defaults_path):
+                with open(defaults_path, "r", encoding="utf-8") as f:
+                    defaults = json.load(f)
+                    if expand_vars:
+                        defaults = self.expand_placeholders(defaults)
         
-        Args:
-            config_type: Type of config directory
-            exclude: Set of filenames to exclude
+        # Load specific file
+        if file_name:
+            file_path = os.path.join(base_path, file_name)
+            if not os.path.isfile(file_path):
+                raise FileNotFoundError(f"Config file not found: {file_path}")
             
-        Returns:
-            List of full file paths
-        """
-        config_dir = self.get_config_path(config_type)
-        p = Path(config_dir)
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            if expand_vars:
+                data = self.expand_placeholders(data)
+            
+            # Merge with defaults if provided
+            if defaults:
+                data = {**defaults, **data}
+            
+            return data
         
-        if not p.is_dir():
-            raise FileNotFoundError(f"Config directory not found: {config_dir}")
-            
-        files = sorted(str(fp) for fp in p.glob("*.json"))
+        # Load all files in directory
+        if not os.path.isdir(base_path):
+            raise FileNotFoundError(f"Config directory not found: {base_path}")
         
-        if exclude:
-            files = [f for f in files if Path(f).name not in exclude]
-            
-        return files
+        files = sorted(Path(base_path).glob("*.json"))
+        if defaults_file:
+            files = [f for f in files if f.name != defaults_file]
+        
+        if not files:
+            return []
+        
+        # Standard handling for all services
+        configs = []
+        for file_path in files:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if expand_vars:
+                data = self.expand_placeholders(data)
+            if defaults:
+                data = {**defaults, **data}
+            configs.append(data)
+        
+        return configs
     
     def find_lambda_dirs(self, code_root: str = "lambda_src") -> List[Path]:
         """
@@ -180,9 +147,9 @@ class ConfigManager:
                 
         return lambda_dirs
     
-    def load_lambda_config_from_folder(self, folder: Path, extra_vars: Dict[str, str] = None) -> dict:
+    def load_lambda_config(self, folder: Path, extra_vars: Dict[str, str] = None) -> dict:
         """
-        Load and merge all config*.json files from a lambda folder.
+        Load lambda configuration from a folder.
         
         Args:
             folder: Lambda folder path
@@ -197,7 +164,8 @@ class ConfigManager:
         
         # Merge in lexicographic order (later files override earlier ones)
         for cf in config_files:
-            data = self.load_json(str(cf), expand_vars=False)  # Don't expand yet
+            with open(cf, "r", encoding="utf-8") as f:
+                data = json.load(f)
             conf.update(data)
         
         # Apply defaults
@@ -219,77 +187,23 @@ class ConfigManager:
         
         return conf
     
-    def resolve_policy_file(self, policy_file: Optional[str], base_folder: Path = None) -> Optional[str]:
+    def find_api_dirs(self, service_name: str = "ws_apis") -> List[Path]:
         """
-        Resolve a policy file path, checking local folder first, then configs.
+        Find API directories for a service.
         
         Args:
-            policy_file: Policy file name or path
-            base_folder: Base folder to check for local policy files
+            service_name: Service type (ws_apis, etc.)
             
-        Returns:
-            Resolved policy file path or None
-        """
-        if not policy_file:
-            return None
-            
-        p = Path(policy_file)
-        
-        if not p.is_absolute():
-            # Try local folder first
-            if base_folder:
-                local = base_folder / policy_file
-                if local.is_file():
-                    return str(local)
-                    
-            # Fall back to configs directory
-            alt = Path(self.get_config_path("policies", policy_file))
-            if alt.is_file():
-                return str(alt)
-                
-        return str(p)
-    
-    def find_route_files(self, api_name: str) -> List[Path]:
-        """
-        Find all route JSON files for a specific WebSocket API.
-        
-        Args:
-            api_name: Name of the API (folder name under configs/apis/ws/)
-            
-        Returns:
-            List of Path objects for route JSON files
-        """
-        routes_dir = Path(self.get_config_path("ws_apis")) / api_name / "routes"
-        
-        if not routes_dir.is_dir():
-            raise FileNotFoundError(f"Routes directory not found: {routes_dir}")
-            
-        route_files = sorted(routes_dir.glob("**/*.json"))
-        return route_files
-    
-    def load_route_config(self, route_file: Path) -> dict:
-        """
-        Load a route configuration file with placeholder expansion.
-        
-        Args:
-            route_file: Path to the route JSON file
-            
-        Returns:
-            Parsed route configuration
-        """
-        return self.load_json(str(route_file))
-    
-    def find_api_directories(self) -> List[Path]:
-        """
-        Find all WebSocket API directories.
-        
         Returns:
             List of Path objects for API directories
         """
-        apis_dir = Path(self.get_config_path("ws_apis"))
+        if service_name not in self.CONFIG_PATHS:
+            raise ValueError(f"Unknown service: {service_name}")
+        
+        apis_dir = Path(os.path.join(self.CONFIG_ROOT, self.CONFIG_PATHS[service_name]))
         
         if not apis_dir.is_dir():
-            raise FileNotFoundError(f"WebSocket APIs directory not found: {apis_dir}")
+            raise FileNotFoundError(f"APIs directory not found: {apis_dir}")
             
         api_dirs = []
         for d in sorted(p for p in apis_dir.iterdir() if p.is_dir()):
@@ -301,52 +215,24 @@ class ConfigManager:
                 
         return api_dirs
     
-    def load_api_config(self, api_dir: Path) -> dict:
+    def find_route_files(self, api_name: str, service_name: str = "ws_apis") -> List[Path]:
         """
-        Load an API configuration file.
+        Find route files for an API.
         
         Args:
-            api_dir: Path to the API directory
+            api_name: Name of the API
+            service_name: Service type (ws_apis, etc.)
             
         Returns:
-            Parsed API configuration
+            List of Path objects for route files
         """
-        api_json = api_dir / "api.json"
-        return self.load_json(str(api_json))
-    
-    def load_table_configs(self, config_files: Optional[List[str]] = None, defaults_file: Optional[str] = None) -> List[tuple[str, dict]]:
-        """
-        Load table configurations with optional defaults.
+        if service_name not in self.CONFIG_PATHS:
+            raise ValueError(f"Unknown service: {service_name}")
         
-        Args:
-            config_files: Optional list of specific table config filenames
-            defaults_file: Optional defaults filename to merge with each config
+        routes_dir = Path(os.path.join(self.CONFIG_ROOT, self.CONFIG_PATHS[service_name])) / api_name / "routes"
+        
+        if not routes_dir.is_dir():
+            raise FileNotFoundError(f"Routes directory not found: {routes_dir}")
             
-        Returns:
-            List of tuples (filepath, config_dict)
-        """
-        # Load defaults if provided
-        defaults: dict = {}
-        if defaults_file:
-            defaults = self.load_config("tables", defaults_file) or {}
-        
-        # Gather table config files
-        files: List[str] = []
-        if config_files:
-            # Load specific files
-            for filename in config_files:
-                filepath = self.get_config_path("tables", filename)
-                files.append(filepath)
-        else:
-            # Load all files in tables directory
-            exclude = {defaults_file} if defaults_file else set()
-            files = self.list_config_files("tables", exclude=exclude)
-        
-        # Load and merge configurations
-        configs = []
-        for filepath in files:
-            conf = self.load_json(filepath)
-            merged = {**defaults, **conf}
-            configs.append((filepath, merged))
-        
-        return configs
+        route_files = sorted(routes_dir.glob("**/*.json"))
+        return route_files

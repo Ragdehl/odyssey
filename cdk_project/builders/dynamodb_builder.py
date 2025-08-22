@@ -107,7 +107,7 @@ class DynamoTables(Construct):
 
     Usage options:
       1) Provide a directory with one JSON per table:
-         DynamoTables(..., env_name=env, config_dir="tables", defaults_file="dynamodb.defaults.json")
+         DynamoTables(..., env_name=env)
 
          Each table JSON looks like:
          {
@@ -124,11 +124,11 @@ class DynamoTables(Construct):
            "tags": {"service":"odyssey"}
          }
 
-         The optional defaults_file contains a JSON object with default keys merged into each table config.
+         Default configurations are embedded in the code and automatically applied.
 
       2) Provide explicit list of files:
          DynamoTables(..., env_name=env, config_files=["messages.json","sessions.json"]) 
-    """
+    """    
     def __init__(
         self,
         scope: Construct,
@@ -136,24 +136,28 @@ class DynamoTables(Construct):
         *,
         env_name: str,
         config_files: Optional[List[str]] = None,
-        defaults_file: Optional[str] = None,
     ) -> None:
         super().__init__(scope, construct_id)
         
         self.config_mgr = ConfigManager(Stack.of(self))
 
-        # Use ConfigManager to load all table configurations
-        table_configs = self.config_mgr.load_table_configs(
-            config_files=config_files if config_files else None,
-            defaults_file=defaults_file
-        )
+        # Load specific files
+        table_configs = []
+
+        if not config_files:
+            raise ValueError("No config_files provided to DynamoTables.")
+
+        for filename in config_files:
+            config = self.config_mgr.load_config("dynamodb", filename)
+            
+            table_configs.append((filename, config))
         
         if not table_configs:
-            raise ValueError("You must provide either 'config_files' with at least one table config JSON.")
+            raise ValueError("No table configurations found.")
 
         # Build tables
         self.tables: Dict[str, dynamodb.Table] = {}
         for filepath, conf in table_configs:
-            logical_name = conf.get("name") or Path(filepath).stem
+            logical_name = conf.get("name") or Path(filepath).stem if filepath else "table"
             table = build_table(self, logical_name, conf, env_name=env_name)
             self.tables[logical_name] = table

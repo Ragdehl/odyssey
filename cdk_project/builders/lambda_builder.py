@@ -79,7 +79,7 @@ class LambdaFleet(Construct):
         self.functions: Dict[str, _lambda.Function] = {}
 
         for folder in self.config_mgr.find_lambda_dirs(code_root):
-            conf = self.config_mgr.load_lambda_config_from_folder(folder, extra_vars={"EnvName": env_name})
+            conf = self.config_mgr.load_lambda_config(folder, extra_vars={"EnvName": env_name})
             logical_name = conf["name"]
 
             fn = build_lambda_function(self, logical_name, conf)
