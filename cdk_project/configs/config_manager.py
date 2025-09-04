@@ -1,11 +1,23 @@
+"""
+Configuration management for Odyssey CDK project.
+
+This module provides centralized configuration loading, validation, and error
+handling for all CDK resources. It manages paths to various configuration files,
+handles placeholder expansion, and provides a unified interface for loading
+configurations across different services.
+"""
+
 from __future__ import annotations
-import json, os, re
+import json
+import os
+import re
 from pathlib import Path
 from typing import Any, Mapping, Dict, List, Optional, Union
 from aws_cdk import Stack
 from cdk_project.configs.odyssey_cfg import get_cfg
 from cdk_project.configs.error_handler import ErrorHandler, ValidationDecorators
 
+# Regular expression for placeholder expansion
 _VAR = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
 
 class ConfigManager:
@@ -29,11 +41,21 @@ class ConfigManager:
     }
     
     def __init__(self, stack: Stack):
+        """
+        Initialize the configuration manager.
+        
+        Args:
+            stack: CDK stack instance for context and variables
+        """
         self.stack = stack
         self.cfg = get_cfg(stack)
         self.vars = self.cfg.vars(stack)
     
-    def expand_placeholders(self, obj: Any, vars: Mapping[str, str] = None) -> Any:
+    def expand_placeholders(
+            self, 
+            obj: Any, 
+            vars: Mapping[str, str] = None
+        ) -> Any:
         """
         Recursively expand ${VAR} placeholders in strings, lists, and dicts.
         
@@ -56,7 +78,13 @@ class ConfigManager:
         return obj
     
     @ValidationDecorators.validate_service_name()
-    def load_config(self, service_name: str, file_name: Optional[str] = None, expand_vars: bool = True, defaults_file: Optional[str] = None) -> Union[dict, List[dict], List[tuple[str, dict]]]:
+    def load_config(
+            self, 
+            service_name: str, 
+            file_name: Optional[str] = None, 
+            expand_vars: bool = True, 
+            defaults_file: Optional[str] = None
+        ) -> Union[dict, List[dict], List[tuple[str, dict]]]:
         """
         Unified method to load configurations for any service.
         
@@ -124,7 +152,10 @@ class ConfigManager:
         return configs
     
     @ValidationDecorators.validate_path_exists("code_root", "Lambda root")
-    def find_lambda_dirs(self, code_root: str = "lambda_src") -> List[Path]:
+    def find_lambda_dirs(
+            self, 
+            code_root: str = "lambda_src"
+        ) -> List[Path]:
         """
         Find all lambda directories that contain app.py.
         
@@ -141,7 +172,11 @@ class ConfigManager:
                 
         return lambda_dirs
     
-    def load_lambda_config(self, folder: Path, extra_vars: Dict[str, str] = None) -> dict:
+    def load_lambda_config(
+            self, 
+            folder: Path, 
+            extra_vars: Dict[str, str] = None
+        ) -> dict:
         """
         Load lambda configuration from a folder.
         
@@ -164,7 +199,11 @@ class ConfigManager:
         
         # Validate required fields
         required_fields = ["name", "runtime", "memory", "timeout", "handler"]
-        ErrorHandler.validate_required_fields(conf, required_fields, f"Lambda configuration in {folder}")
+        ErrorHandler.validate_required_fields(
+            conf, 
+            required_fields, 
+            f"Lambda configuration in {folder}"
+        )
         
         # Add code path
         conf["code_path"] = str(folder.resolve())
@@ -179,7 +218,10 @@ class ConfigManager:
         return conf
     
     @ValidationDecorators.validate_service_name()
-    def find_api_dirs(self, service_name: str = "ws_apis") -> List[Path]:
+    def find_api_dirs(
+            self, 
+            service_name: str = "ws_apis"
+        ) -> List[Path]:
         """
         Find API directories for a service.
         
@@ -203,7 +245,11 @@ class ConfigManager:
         return api_dirs
     
     @ValidationDecorators.validate_service_name()
-    def find_route_files(self, api_name: str, service_name: str = "ws_apis") -> List[Path]:
+    def find_route_files(
+            self, 
+            api_name: str, 
+            service_name: str = "ws_apis"
+        ) -> List[Path]:
         """
         Find route files for an API.
         
@@ -214,7 +260,9 @@ class ConfigManager:
         Returns:
             List of Path objects for route files
         """
-        routes_dir = Path(os.path.join(self.CONFIG_ROOT, self.CONFIG_PATHS[service_name])) / api_name / "routes"
+        routes_dir = Path(
+            os.path.join(self.CONFIG_ROOT, self.CONFIG_PATHS[service_name])
+        ) / api_name / "routes"
         ErrorHandler.validate_path_exists(routes_dir, "Routes directory")
             
         route_files = sorted(routes_dir.glob("**/*.json"))

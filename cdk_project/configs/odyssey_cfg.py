@@ -1,18 +1,44 @@
+"""
+Project configuration management for Odyssey CDK project.
+
+This module provides configuration classes and utilities for managing project-wide
+settings, environment configurations, and context variables. It handles loading
+configuration from cdk.json and provides type-safe access to configuration values.
+"""
+
 from __future__ import annotations
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import Optional, Union
 from aws_cdk import App, Stack
+from functools import lru_cache
 from cdk_project.configs.error_handler import ErrorHandler
 
 @dataclass(frozen=True)
 class GithubCfg:
+    """
+    GitHub configuration settings.
+    
+    Attributes:
+        owner: GitHub repository owner
+        repo: GitHub repository name
+    """
     owner: str
     repo: str
 
 @dataclass(frozen=True)
 class EnvCfg:
-    name: str                 # "dev" | "main"
+    """
+    Environment configuration settings.
+    
+    Attributes:
+        name: Environment name
+        account_id: AWS account ID
+        region: AWS region
+        branch: Git branch name
+        connection_id: Optional CodeStar connection ID
+        connection_arn: Optional CodeStar connection ARN
+    """
+    name: str
     account_id: str
     region: str
     branch: str
@@ -21,6 +47,12 @@ class EnvCfg:
 
     @property
     def resolved_connection_arn(self) -> Optional[str]:
+        """
+        Get the resolved connection ARN.
+        
+        Returns:
+            Connection ARN if available, None otherwise
+        """
         if self.connection_arn:
             return self.connection_arn
         if self.connection_id:
@@ -29,11 +61,31 @@ class EnvCfg:
 
 @dataclass(frozen=True)
 class OdysseyCfg:
+    """
+    Main project configuration container.
+    
+    Attributes:
+        env: Environment configuration
+        github: GitHub configuration
+    """
     env: EnvCfg
     github: GithubCfg
 
-    def vars(self, stack: Stack, extra: dict[str, str] | None = None) -> dict[str, str]:
-        """Placeholders para JSONs de políticas, etc."""
+    def vars(
+            self, 
+            stack: Stack, 
+            extra: dict[str, str] | None = None
+        ) -> dict[str, str]:
+        """
+        Generate placeholder variables for JSON configuration expansion.
+        
+        Args:
+            stack: CDK stack instance
+            extra: Additional variables to include
+            
+        Returns:
+            Dictionary of variable name to value mappings
+        """
         base = {
             "EnvName": self.env.name,
             "AccountId": stack.account or self.env.account_id,
@@ -49,14 +101,37 @@ class OdysseyCfg:
             base["ConnectionArn"] = self.env.resolved_connection_arn
         if extra:
             base.update({k: str(v) for k, v in extra.items()})
+
         return base
 
 def _node(obj: Union[App, Stack]):
+    """
+    Get the CDK node from an App or Stack.
+    
+    Args:
+        obj: CDK App or Stack instance
+        
+    Returns:
+        CDK node instance
+    """
     return (obj if isinstance(obj, App) else Stack.of(obj)).node
 
 @lru_cache(maxsize=1)
 def get_cfg(obj: Union[App, Stack]) -> OdysseyCfg:
-    """Lee cdk.json una vez, aplica overrides (-c odyssey.env=...), y valida."""
+    """
+    Load project configuration from cdk.json context.
+    
+    Reads cdk.json once, applies overrides (-c odyssey.env=...), and validates.
+    
+    Args:
+        obj: CDK App or Stack instance
+        
+    Returns:
+        Validated project configuration
+        
+    Raises:
+        ValueError: If required context keys are missing
+    """
     node = _node(obj)
     ctx = node.try_get_context("odyssey") or {}
     env_name = (node.try_get_context("odyssey.env") or ctx.get("env") or "dev").lower()
@@ -72,18 +147,25 @@ def get_cfg(obj: Union[App, Stack]) -> OdysseyCfg:
     owner = gh.get("owner")
     repo = gh.get("repo")
 
-    # Validación mínima
+    # Validate required configuration
     missing = []
-    if not account_id: missing.append(f"{env_name}.account_id")
-    if not owner:      missing.append("github.owner")
-    if not repo:       missing.append("github.repo")
+    if not account_id: 
+        missing.append(f"{env_name}.account_id")
+    if not owner:      
+        missing.append("github.owner")
+    if not repo:       
+        missing.append("github.repo")
     
     ErrorHandler.validate_context_keys(missing, "cdk.json")
 
     return OdysseyCfg(
         env=EnvCfg(
-            name=env_name, account_id=account_id, region=region, branch=branch,
-            connection_id=conn_id, connection_arn=conn_arn
+            name=env_name, 
+            account_id=account_id, 
+            region=region, 
+            branch=branch,
+            connection_id=conn_id, 
+            connection_arn=conn_arn
         ),
         github=GithubCfg(owner=owner, repo=repo),
     )

@@ -1,3 +1,11 @@
+"""
+Lambda function builders for Odyssey CDK project.
+
+This module provides builders for creating AWS Lambda functions from JSON configurations.
+It includes support for runtime selection, environment variables, memory configuration,
+timeout settings, and integration with DynamoDB table access grants.
+"""
+
 from __future__ import annotations
 import os
 from pathlib import Path
@@ -14,6 +22,18 @@ from cdk_project.configs.error_handler import ErrorHandler, ValidationDecorators
 # -----------------------------
 
 def runtime_from(s: str) -> _lambda.Runtime:
+    """
+    Convert string to Lambda runtime enum.
+    
+    Args:
+        s: String representation of runtime
+        
+    Returns:
+        Lambda runtime enum
+        
+    Raises:
+        ValueError: If runtime string is not supported
+    """
     s = (s or "python3.12").lower()
     m = {
         "python3.12": _lambda.Runtime.PYTHON_3_12,
@@ -25,25 +45,29 @@ def runtime_from(s: str) -> _lambda.Runtime:
     ErrorHandler.validate_enum_value(s, list(m.keys()), "runtime", "Lambda")
     return m[s]
 
-@ValidationDecorators.validate_required_config_fields(["code_path", "runtime", "handler", "memory", "timeout"], context="Lambda")
-def build_lambda_function(scope: Construct, logical_name: str, conf: dict) -> _lambda.Function:
-    """Build a Lambda function from configuration.
+@ValidationDecorators.validate_required_config_fields(
+    ["code_path", "runtime", "handler", "memory", "timeout"], 
+    context="Lambda"
+)
+def build_lambda_function(
+        scope: Construct, 
+        logical_name: str, 
+        conf: dict
+    ) -> _lambda.Function:
+    """
+    Build a Lambda function from configuration.
     
-    Required fields in conf:
-    - code_path: string (path to lambda code)
-    - runtime: string (python3.12, nodejs18.x, etc.)
-    - handler: string (app.handler, index.handler, etc.)
-    - memory: int (memory size in MB)
-    - timeout: int (timeout in seconds)
-    
-    Optional fields:
-    - function_name: string
-    - env: dict (environment variables)
-    - description: string
-    - tags: dict
+    Args:
+        scope: CDK construct scope
+        logical_name: Logical name for the function
+        conf: Lambda configuration dictionary
+        
+    Returns:
+        Lambda function instance
     """
     fn = _lambda.Function(
-        scope, f"Fn-{logical_name}",
+        scope, 
+        f"Fn-{logical_name}",
         function_name=conf.get("function_name"),
         runtime=runtime_from(conf["runtime"]),
         handler=conf["handler"],
@@ -54,20 +78,35 @@ def build_lambda_function(scope: Construct, logical_name: str, conf: dict) -> _l
         description=conf.get("description"),
     )
 
+    # Add tags if configured
     for k, v in (conf.get("tags") or {}).items():
         Tags.of(fn).add(k, v)
 
     return fn
 
-def grant_table_access(fn: _lambda.Function, grants: List[dict], tables: Dict[str, Any]) -> None:
-    """Grant DynamoDB table access to Lambda function.
+def grant_table_access(
+        fn: _lambda.Function, 
+        grants: List[dict], 
+        tables: Dict[str, Any]
+    ) -> None:
+    """
+    Grant DynamoDB table access to Lambda function.
     
-    Each grant dict must have:
-    - table: string (table logical name)
-    - access: string (read, write, or readWrite)
+    Args:
+        fn: Lambda function to grant access to
+        grants: List of grant configuration dictionaries
+        tables: Dictionary of DynamoDB tables
+        
+    Raises:
+        ValueError: If grant configuration is invalid
+        KeyError: If table is not found in tables dictionary
     """
     for g in grants or []:
-        ErrorHandler.validate_required_fields(g, ["table", "access"], "DynamoDB grant")
+        ErrorHandler.validate_required_fields(
+            g, 
+            ["table", "access"], 
+            "DynamoDB grant"
+        )
         
         tname = g["table"]
         access = g["access"].lower()
@@ -75,7 +114,12 @@ def grant_table_access(fn: _lambda.Function, grants: List[dict], tables: Dict[st
         if not table:
             raise KeyError(f"Table logical name '{tname}' not found for grants.")
         
-        ErrorHandler.validate_enum_value(access, ["read", "write", "readwrite"], "access", "DynamoDB grant")
+        ErrorHandler.validate_enum_value(
+            access, 
+            ["read", "write", "readwrite"], 
+            "access", 
+            "DynamoDB grant"
+        )
         
         if access == "read":
             table.grant_read_data(fn)
@@ -99,24 +143,57 @@ class LambdaFleet(Construct):
 
     Merge order is lexicographic; later files override earlier ones.
     """
-    def __init__(self, scope: Construct, construct_id: str, *, env_name: str, tables: Dict[str, Any], code_root: str = "lambda_src") -> None:
+    def __init__(
+            self, 
+            scope: Construct, 
+            construct_id: str, 
+            *, 
+            env_name: str, 
+            tables: Dict[str, Any], 
+            code_root: str = "lambda_src"
+        ) -> None:
+        """
+        Initialize the Lambda fleet construct.
+        
+        Args:
+            scope: CDK construct scope
+            construct_id: Construct ID
+            env_name: Environment name
+            tables: Dictionary of DynamoDB tables for access grants
+            code_root: Root directory for Lambda source code
+        """
         super().__init__(scope, construct_id)
         
         self.config_mgr = ConfigManager(Stack.of(self))
         self.functions: Dict[str, _lambda.Function] = {}
 
+        # Discover and build Lambda functions
         for folder in self.config_mgr.find_lambda_dirs(code_root):
-            conf = self.config_mgr.load_lambda_config(folder, extra_vars={"EnvName": env_name})
+            conf = self.config_mgr.load_lambda_config(
+                folder, 
+                extra_vars={"EnvName": env_name}
+            )
             logical_name = conf["name"]
 
-            fn = build_lambda_function(self, logical_name, conf)
+            fn = build_lambda_function(
+                self, 
+                logical_name, 
+                conf
+            )
 
             # Attach inline/managed policies if requested
             policy_file = conf.get("policy_file")
             if policy_file:
-                apply_policies_to_role(fn.role, policy_file)
+                apply_policies_to_role(
+                    fn.role, 
+                    policy_file
+                )
 
-            # Dynamo grants (optional)
-            grant_table_access(fn, conf.get("dynamodb_access", []), tables)
+            # Grant DynamoDB table access if configured
+            grant_table_access(
+                fn, 
+                conf.get("dynamodb_access", []), 
+                tables
+            )
 
             self.functions[logical_name] = fn
