@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+        "name": {
+            "type": "string"
+        },
+        "route_selection_expression": {
+            "type": "string"
+        },
+        "stage": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "auto_deploy": {
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "name",
+                "auto_deploy"
+            ],
+            "additionalProperties": false
+        },
+        "manage_connections_for": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        }
+    },
+    "required": [
+        "name",
+        "route_selection_expression",
+        "stage"
+    ],
+    "additionalProperties": false
+}

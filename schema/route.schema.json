@@ -1,0 +1,39 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+        "route_key": {
+            "type": "string",
+            "enum": [
+                "$connect",
+                "$disconnect",
+                "$default",
+                "sendMessage"
+            ]
+        },
+        "integration": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "lambda"
+                    ]
+                },
+                "lambda_name": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "type",
+                "lambda_name"
+            ],
+            "additionalProperties": false
+        }
+    },
+    "required": [
+        "route_key",
+        "integration"
+    ],
+    "additionalProperties": false
+}

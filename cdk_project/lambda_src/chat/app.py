@@ -1,17 +1,26 @@
-import os, json, time, boto3
+import json
+import os
+import time
+
+import boto3
 
 dynamodb = boto3.resource("dynamodb")
 TABLE = dynamodb.Table(os.environ["TABLE_NAME"])
 
-def _ttl(days=30): return int(time.time()) + days*24*3600
+
+def _ttl(days=30):
+    return int(time.time()) + days * 24 * 3600
+
 
 def _api_client(event):
     domain = event["requestContext"]["domainName"]
     stage = event["requestContext"]["stage"]
     return boto3.client("apigatewaymanagementapi", endpoint_url=f"https://{domain}/{stage}")
 
+
 def _post(conn_id, data, client):
     client.post_to_connection(ConnectionId=conn_id, Data=json.dumps(data).encode("utf-8"))
+
 
 def handler(event, context):
     rc = event.get("requestContext", {})
@@ -35,13 +44,9 @@ def handler(event, context):
     reply = f"Odyssey here. Got your message -> '{msg}'"
     now_ms = int(time.time() * 1000)
 
-    TABLE.put_item(Item={
-        "pk": f"CONN#{conn_id}",
-        "sk": now_ms,
-        "input": msg,
-        "output": reply,
-        "ttl": _ttl()
-    })
+    TABLE.put_item(
+        Item={"pk": f"CONN#{conn_id}", "sk": now_ms, "input": msg, "output": reply, "ttl": _ttl()}
+    )
 
     _post(conn_id, {"reply": reply, "ts": now_ms}, api)
     return {"statusCode": 200}

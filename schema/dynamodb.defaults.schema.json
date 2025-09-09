@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+        "billing_mode": {
+            "type": "string",
+            "enum": [
+                "PAY_PER_REQUEST",
+                "PROVISIONED"
+            ]
+        },
+        "pitr": {
+            "type": "boolean"
+        },
+        "ttl_attribute": {
+            "type": "string"
+        },
+        "tags": {
+            "type": "object",
+            "patternProperties": {
+                "^[a-zA-Z0-9-_]+$": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "additionalProperties": false
+}

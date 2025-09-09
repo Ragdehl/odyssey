@@ -1,3 +1,4 @@
 aws-cdk-lib
 constructs
 boto3
+jsonschema>=4

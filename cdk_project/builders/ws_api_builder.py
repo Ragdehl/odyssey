@@ -7,33 +7,23 @@ route management, and comprehensive validation using the centralized error handl
 """
 
 from __future__ import annotations
+
 from typing import Any, Dict, List
 
-from aws_cdk import (
-    Stack, 
-    CfnOutput
-)
+from aws_cdk import CfnOutput, Stack
 from aws_cdk import aws_apigatewayv2 as apigwv2
 from aws_cdk import aws_apigatewayv2_integrations as apigwv2_integrations
-from aws_cdk import aws_iam as iam
 from constructs import Construct
-from cdk_project.configs.config_manager import ConfigManager
+
 from cdk_project.builders.policy_builder import apply_policies_to_role
-from cdk_project.configs.error_handler import ErrorHandler, ValidationDecorators
+from cdk_project.configs.config_manager import ConfigManager
 
 # -----------------------------
 # Core builders
 # -----------------------------
 
-@ValidationDecorators.validate_required_config_fields(
-    ["name", "route_selection_expression"], 
-    context="WebSocket API"
-)
-def build_websocket_api(
-        scope: Construct, 
-        logical_name: str, 
-        conf: dict
-    ) -> apigwv2.WebSocketApi:
+
+def build_websocket_api(scope: Construct, logical_name: str, conf: dict) -> apigwv2.WebSocketApi:
     """
     Create a WebSocket API with a route selection expression.
 
@@ -43,12 +33,12 @@ def build_websocket_api(
         conf: Parsed api.json dict with required keys:
             - name: string (API name in console)
             - route_selection_expression: string
-            
+
     Returns:
         apigwv2.WebSocketApi instance
     """
     return apigwv2.WebSocketApi(
-        scope, 
+        scope,
         f"WsApi-{logical_name}",
         api_name=conf["name"],
         route_selection_expression=conf["route_selection_expression"],
@@ -56,15 +46,9 @@ def build_websocket_api(
     )
 
 
-@ValidationDecorators.validate_required_config_fields(
-    ["stage"], 
-    context="WebSocket API"
-)
 def build_websocket_stage(
-        scope: Construct, 
-        api: apigwv2.WebSocketApi, 
-        conf: dict
-    ) -> apigwv2.WebSocketStage:
+    scope: Construct, api: apigwv2.WebSocketApi, conf: dict
+) -> apigwv2.WebSocketStage:
     """
     Create a WebSocket stage using config.stage.*
 
@@ -73,24 +57,19 @@ def build_websocket_stage(
         "name": "dev",
         "auto_deploy": true
       }
-      
+
     Args:
         scope: CDK construct scope
         api: WebSocket API to create stage for
         conf: API configuration dictionary
-        
+
     Returns:
         WebSocket stage instance
     """
-    ErrorHandler.validate_field_structure(
-        conf, 
-        "stage", 
-        ["name", "auto_deploy"], 
-        "WebSocket API configuration"
-    )
+    # Required fields are validated by JSON schema
 
     return apigwv2.WebSocketStage(
-        scope, 
+        scope,
         f"WsStage-{api.node.id}",
         web_socket_api=api,
         stage_name=conf["stage"]["name"],
@@ -98,31 +77,28 @@ def build_websocket_stage(
     )
 
 
-def lambda_integration(
-        handler
-    ) -> apigwv2_integrations.WebSocketLambdaIntegration:
+def lambda_integration(handler) -> apigwv2_integrations.WebSocketLambdaIntegration:
     """
     Wrap a Lambda function in a WebSocket integration.
-    
+
     Args:
         handler: Lambda function handler
-        
+
     Returns:
         WebSocket Lambda integration
     """
     return apigwv2_integrations.WebSocketLambdaIntegration(
-        f"WsLambdaInt-{handler.node.id}", 
-        handler
+        f"WsLambdaInt-{handler.node.id}", handler
     )
 
 
 def add_routes_from_dir(
-        scope: Construct, 
-        api: apigwv2.WebSocketApi, 
-        lambdas: Dict[str, Any], 
-        config_mgr: ConfigManager, 
-        api_name: str
-    ) -> List[str]:
+    scope: Construct,
+    api: apigwv2.WebSocketApi,
+    lambdas: Dict[str, Any],
+    config_mgr: ConfigManager,
+    api_name: str,
+) -> List[str]:
     """
     Add routes by scanning a folder of JSON files.
 
@@ -136,75 +112,43 @@ def add_routes_from_dir(
         lambdas: Dictionary of Lambda functions
         config_mgr: Configuration manager instance
         api_name: Name of the API
-        
+
     Returns:
         List of route keys created
     """
     created: List[str] = []
-    
+
     # Use ConfigManager to find route files
     route_files = config_mgr.find_route_files(api_name)
-    
+
     for route_file in route_files:
         # Load route config using unified method
         rc = config_mgr.load_config("ws_routes", route_file.name)
-        
-        # Validate required fields
-        ErrorHandler.validate_required_fields(
-            rc, 
-            ["route_key", "integration"], 
-            f"Route configuration in {route_file}"
-        )
-        
+
+        # Required fields are validated by JSON schema
         route_key = rc["route_key"]
         integ = rc["integration"]
-        
-        # Validate integration structure
-        ErrorHandler.validate_field_structure(
-            rc, 
-            "integration", 
-            ["type", "lambda_name"], 
-            f"Route configuration in {route_file}"
-        )
-        
-        # Validate integration type
-        ErrorHandler.validate_enum_value(
-            integ["type"], 
-            ["lambda"], 
-            "type", 
-            f"Route integration in {route_file}"
-        )
-
-        # Validate lambda name
         lambda_name = integ["lambda_name"]
-        ErrorHandler.validate_lambda_exists(
-            lambda_name, 
-            lambdas, 
-            f"Route configuration in {route_file}"
-        )
+
+        if lambda_name not in lambdas:
+            raise KeyError(f"Lambda '{lambda_name}' not found in lambdas map")
 
         handler = lambdas[lambda_name]
         integration = lambda_integration(handler)
 
-        api.add_route(
-            route_key=route_key, 
-            integration=integration
-        )
+        api.add_route(route_key=route_key, integration=integration)
         created.append(route_key)
     return created
 
 
 def grant_manage_connections(
-        api: apigwv2.WebSocketApi, 
-        lambdas: Dict[str, Any], 
-        names: List[str], 
-        config_mgr: ConfigManager
-    ) -> None:
+    api: apigwv2.WebSocketApi, lambdas: Dict[str, Any], names: List[str], config_mgr: ConfigManager
+) -> None:
     """
     Grant execute-api:ManageConnections on this API to selected lambdas.
 
     Lambdas that reply to clients via the @connections endpoint need this.
-    
+
     Args:
         api: WebSocket API to grant permissions on
         lambdas: Dictionary of Lambda functions
@@ -212,21 +156,17 @@ def grant_manage_connections(
         config_mgr: Configuration manager instance
     """
     for lambda_name in names or []:
-        ErrorHandler.validate_lambda_exists(
-            lambda_name, 
-            lambdas, 
-            "ManageConnections grant"
-        )
+        if lambda_name not in lambdas:
+            raise KeyError(f"Lambda '{lambda_name}' not found in lambdas map")
 
         # Use config manager to load the policy
-        apply_policies_to_role(
-            lambdas[lambda_name].role,
-            "manage_connections.json"
-        )
+        apply_policies_to_role(lambdas[lambda_name].role, "manage_connections.json")
+
 
 # -----------------------------
 # High-level construct
 # -----------------------------
+
 
 class WebSocketApis(Construct):
     """
@@ -241,24 +181,25 @@ class WebSocketApis(Construct):
         ws = WebSocketApis(
             self, "WsApis",
             env_name=env_name,
-            lambdas=lambdas,                                # dict[str, _lambda.Function] from LambdaFleet
+            lambdas=lambdas,  # dict[str, _lambda.Function] from LambdaFleet
             config_root="ws"                               # config type for WebSocket APIs
         )
         # Access endpoints: ws.endpoints["chat"] -> wss URL
 
     """
+
     def __init__(
-            self,
-            scope: Construct,
-            construct_id: str,
-            *,
-            env_name: str,
-            lambdas: Dict[str, Any],
-            config_root: str = "ws"
-        ) -> None:
+        self,
+        scope: Construct,
+        construct_id: str,
+        *,
+        env_name: str,
+        lambdas: Dict[str, Any],
+        config_root: str = "ws",
+    ) -> None:
         """
         Initialize the WebSocket APIs construct.
-        
+
         Args:
             scope: CDK construct scope
             construct_id: Construct ID
@@ -283,47 +224,26 @@ class WebSocketApis(Construct):
             api_conf = self.config_mgr.load_config("ws_apis", "api.json")
 
             # 1) Create API
-            api = build_websocket_api(
-                self, 
-                name, 
-                api_conf
-            )
+            api = build_websocket_api(self, name, api_conf)
             self.apis[name] = api
 
             # 2) Add routes
-            route_keys = add_routes_from_dir(
-                self, 
-                api, 
-                lambdas, 
-                self.config_mgr, 
-                name
-            )
+            route_keys = add_routes_from_dir(self, api, lambdas, self.config_mgr, name)
             self.route_keys = route_keys
 
             # 3) Create stage
-            stage = build_websocket_stage(
-                self, 
-                api, 
-                api_conf
-            )
+            stage = build_websocket_stage(self, api, api_conf)
             self.stages[name] = stage
 
             # 4) Optional: permissions to post to connections
             mc = api_conf.get("manage_connections_for", [])
             if mc:
-                grant_manage_connections(
-                    api, 
-                    lambdas, 
-                    mc, 
-                    self.config_mgr
-                )
+                grant_manage_connections(api, lambdas, mc, self.config_mgr)
 
             # 5) Output endpoint
             stack = Stack.of(self)
-            endpoint = f"wss://{api.api_id}.execute-api.{stack.region}.amazonaws.com/{stage.stage_name}"
-            self.endpoints[name] = endpoint
-            CfnOutput(
-                self, 
-                f"WsEndpoint-{name}", 
-                value=endpoint
+            endpoint = (
+                f"wss://{api.api_id}.execute-api.{stack.region}.amazonaws.com/{stage.stage_name}"
             )
+            self.endpoints[name] = endpoint
+            CfnOutput(self, f"WsEndpoint-{name}", value=endpoint)

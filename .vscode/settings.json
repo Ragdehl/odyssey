@@ -1,0 +1,58 @@
+{
+    "json.schemas": [
+        {
+            "fileMatch": [
+                "cdk_project/configs/apis/ws/chat/api.json"
+            ],
+            "url": "./schema/api.schema.json"
+        },
+        {
+            "fileMatch": [
+                "cdk_project/configs/apis/ws/routes/connect.json"
+            ],
+            "url": "./schema/route.schema.json"
+        },
+        {
+            "fileMatch": [
+                "cdk_project/configs/apis/ws/routes/default.json"
+            ],
+            "url": "./schema/route.schema.json"
+        },
+        {
+            "fileMatch": [
+                "cdk_project/configs/apis/ws/routes/disconnect.json"
+            ],
+            "url": "./schema/route.schema.json"
+        },
+        {
+            "fileMatch": [
+                "cdk_project/configs/apis/ws/routes/sendMessage.json"
+            ],
+            "url": "./schema/route.schema.json"
+        },
+        {
+            "fileMatch": [
+                "cdk_project/configs/iam/policies/manage_connections.json"
+            ],
+            "url": "./schema/policy.schema.json"
+        },
+        {
+            "fileMatch": [
+                "cdk_project/configs/iam/policies/pipeline.json"
+            ],
+            "url": "./schema/policy.schema.json"
+        },
+        {
+            "fileMatch": [
+                "cdk_project/configs/tables/messages.json"
+            ],
+            "url": "./schema/table.schema.json"
+        },
+        {
+            "fileMatch": [
+                "cdk_project/configs/tables/dynamodb.defaults.json"
+            ],
+            "url": "./schema/dynamodb.defaults.schema.json"
+        }
+    ]
+}

@@ -8,16 +8,15 @@ real-time chat functionality.
 """
 
 from __future__ import annotations
-from aws_cdk import (
-    Stack, 
-    CfnOutput
-)
+
+from aws_cdk import CfnOutput, Stack
 from constructs import Construct
 
 # Builders for infrastructure components
 from cdk_project.builders.dynamodb_builder import DynamoTables
 from cdk_project.builders.lambda_builder import LambdaFleet
 from cdk_project.builders.ws_api_builder import WebSocketApis
+
 
 class ChatBackendStack(Stack):
     """
@@ -37,20 +36,14 @@ class ChatBackendStack(Stack):
 
     Per-route timeouts:
       - API Gateway WebSocket integrations do not support per-route timeouts from CDK L2.
-      - Set the timeout at the Lambda level in each folder's JSON (e.g., config.base.json -> "timeout": 10).
+      - Set the timeout at the Lambda level in each folder's JSON
+        (e.g., config.base.json -> "timeout": 10).
     """
 
-    def __init__(
-            self, 
-            scope: Construct, 
-            construct_id: str, 
-            *, 
-            env_name: str, 
-            **kwargs
-        ) -> None:
+    def __init__(self, scope: Construct, construct_id: str, *, env_name: str, **kwargs) -> None:
         """
         Initialize the chat backend stack.
-        
+
         Args:
             scope: CDK construct scope
             construct_id: Construct ID
@@ -61,7 +54,7 @@ class ChatBackendStack(Stack):
 
         # 1) DynamoDB tables from directory (file-per-table)
         dyn = DynamoTables(
-            self, 
+            self,
             "Dynamo",
             env_name=env_name,
             config_files=["messages.json"],
@@ -70,7 +63,7 @@ class ChatBackendStack(Stack):
 
         # 2) Lambda fleet from folders (per-folder, multi JSON)
         lambdas = LambdaFleet(
-            self, 
+            self,
             "Lambdas",
             env_name=env_name,
             tables=tables,
@@ -79,14 +72,11 @@ class ChatBackendStack(Stack):
 
         # Example: inject table name at deploy time (safer than hardcoding)
         if "chat" in lambdas and "messages" in tables:
-            lambdas["chat"].add_environment(
-                "TABLE_NAME", 
-                tables["messages"].table_name
-            )
+            lambdas["chat"].add_environment("TABLE_NAME", tables["messages"].table_name)
 
         # 3) WebSocket APIs from JSON-only configs
         ws = WebSocketApis(
-            self, 
+            self,
             "WsApis",
             env_name=env_name,
             lambdas=lambdas,
@@ -94,7 +84,8 @@ class ChatBackendStack(Stack):
         )
 
         # --- Optional: explicitly enforce ManageConnections policy for a lambda on a given API ---
-        # If you also want to grant manage connections here (in addition to builder's grant), uncomment:
+        # If you also want to grant manage connections here
+        # (in addition to builder's grant), uncomment:
         #
         # api = ws.apis["chat"]  # the API folder name under configs/apis/ws/
         # region = self.region
@@ -106,14 +97,6 @@ class ChatBackendStack(Stack):
 
         # 4) Outputs
         if "chat" in ws.endpoints:
-            CfnOutput(
-                self, 
-                "WsChatEndpoint", 
-                value=ws.endpoints["chat"]
-            )  # wss://.../<stage>
+            CfnOutput(self, "WsChatEndpoint", value=ws.endpoints["chat"])  # wss://.../<stage>
         if "messages" in tables:
-            CfnOutput(
-                self, 
-                "MessagesTableName", 
-                value=tables["messages"].table_name
-            )
+            CfnOutput(self, "MessagesTableName", value=tables["messages"].table_name)

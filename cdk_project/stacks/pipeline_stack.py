@@ -7,36 +7,36 @@ with optional manual approval for production environments.
 """
 
 from __future__ import annotations
+
 from aws_cdk import (
+    Environment,
     Stack,
     Stage,
+)
+from aws_cdk import (
     pipelines as pipelines,
-    Environment,
-    aws_iam as iam,
 )
 from constructs import Construct
-from cdk_project.stacks.site_stack import StaticSiteStack
-from cdk_project.stacks.chat_backend_stack import ChatBackendStack
+
 from cdk_project.builders.policy_builder import apply_policies_to_role
+from cdk_project.stacks.chat_backend_stack import ChatBackendStack
+from cdk_project.stacks.site_stack import StaticSiteStack
+
 
 class AppStage(Stage):
     """
     Application stage containing all stacks for a specific environment.
-    
+
     This stage deploys both the static site and chat backend stacks
     for the specified environment.
     """
+
     def __init__(
-            self, 
-            scope: Construct, 
-            construct_id: str, 
-            env_name: str, 
-            app_env: Environment, 
-            **kwargs
-        ) -> None:
+        self, scope: Construct, construct_id: str, env_name: str, app_env: Environment, **kwargs
+    ) -> None:
         """
         Initialize the application stage.
-        
+
         Args:
             scope: CDK construct scope
             construct_id: Construct ID
@@ -45,43 +45,35 @@ class AppStage(Stage):
             **kwargs: Additional stage properties
         """
         super().__init__(scope, construct_id, **kwargs)
-        StaticSiteStack(
-            self, 
-            f"StaticSiteStack-{env_name}", 
-            env_name=env_name, 
-            env=app_env
-        )
-        ChatBackendStack(
-            self, 
-            f"ChatBackendStack-{env_name}", 
-            env_name=env_name, 
-            env=app_env
-        )
+        StaticSiteStack(self, f"StaticSiteStack-{env_name}", env_name=env_name, env=app_env)
+        ChatBackendStack(self, f"ChatBackendStack-{env_name}", env_name=env_name, env=app_env)
+
 
 class OdysseyPipelineStack(Stack):
     """
     Main pipeline stack for Odyssey application deployment.
-    
+
     Creates a CodePipeline that automatically builds and deploys
     the Odyssey application from GitHub source code.
     """
+
     def __init__(
-            self,
-            scope: Construct,
-            construct_id: str,
-            *,
-            github_owner: str,
-            github_repo: str,
-            connection_arn: str,
-            env_name: str,                 # "dev" | "main"
-            branch: str,                   # e.g. "dev" or "main"
-            manual_approval: bool = False, # true in production
-            app_env: Environment | None = None,
-            **kwargs
-        ) -> None:
+        self,
+        scope: Construct,
+        construct_id: str,
+        *,
+        github_owner: str,
+        github_repo: str,
+        connection_arn: str,
+        env_name: str,  # "dev" | "main"
+        branch: str,  # e.g. "dev" or "main"
+        manual_approval: bool = False,  # true in production
+        app_env: Environment | None = None,
+        **kwargs,
+    ) -> None:
         """
         Initialize the pipeline stack.
-        
+
         Args:
             scope: CDK construct scope
             construct_id: Construct ID
@@ -111,31 +103,23 @@ class OdysseyPipelineStack(Stack):
                 "pip install -r requirements.txt",
                 "npm i -g aws-cdk",
                 f"cdk synth -c odyssey.env={env_name}",
-            ]
+            ],
         )
 
         # Create the main pipeline
         pipeline = pipelines.CodePipeline(
-            self, 
+            self,
             "Odyssey-Static-Site-Pipeline",
             pipeline_name="Odyssey-Static-Site-Pipeline",
-            synth=synth
+            synth=synth,
         )
 
         # Create application stage
-        stage = AppStage(
-            self, 
-            env_name.capitalize(), 
-            env_name=env_name, 
-            app_env=app_env
-        )
+        stage = AppStage(self, env_name.capitalize(), env_name=env_name, app_env=app_env)
 
         # Add stage with optional manual approval
         if manual_approval:
-            pipeline.add_stage(
-                stage, 
-                pre=[pipelines.ManualApprovalStep("ApproveDeployment")]
-            )
+            pipeline.add_stage(stage, pre=[pipelines.ManualApprovalStep("ApproveDeployment")])
         else:
             pipeline.add_stage(stage)
 

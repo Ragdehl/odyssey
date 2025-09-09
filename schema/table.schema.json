@@ -1,0 +1,179 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+        "name": {
+            "type": "string"
+        },
+        "table_name": {
+            "type": "string"
+        },
+        "partition_key": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "STRING",
+                        "NUMBER",
+                        "BINARY"
+                    ]
+                }
+            },
+            "required": [
+                "name",
+                "type"
+            ],
+            "additionalProperties": false
+        },
+        "sort_key": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "STRING",
+                        "NUMBER",
+                        "BINARY"
+                    ]
+                }
+            },
+            "required": [
+                "name",
+                "type"
+            ],
+            "additionalProperties": false
+        },
+        "billing_mode": {
+            "type": "string",
+            "enum": [
+                "PAY_PER_REQUEST",
+                "PROVISIONED"
+            ]
+        },
+        "rcu": {
+            "type": "integer",
+            "minimum": 1
+        },
+        "wcu": {
+            "type": "integer",
+            "minimum": 1
+        },
+        "pitr": {
+            "type": "boolean"
+        },
+        "ttl_attribute": {
+            "type": "string"
+        },
+        "stream": {
+            "type": "string",
+            "enum": [
+                "NEW_IMAGE",
+                "OLD_IMAGE",
+                "NEW_AND_OLD_IMAGES",
+                "KEYS_ONLY"
+            ]
+        },
+        "kms_alias": {
+            "type": "string"
+        },
+        "global_secondary_indexes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "index_name": {
+                        "type": "string"
+                    },
+                    "partition_key": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "STRING",
+                                    "NUMBER",
+                                    "BINARY"
+                                ]
+                            }
+                        },
+                        "required": [
+                            "name",
+                            "type"
+                        ],
+                        "additionalProperties": false
+                    },
+                    "sort_key": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "STRING",
+                                    "NUMBER",
+                                    "BINARY"
+                                ]
+                            }
+                        },
+                        "required": [
+                            "name",
+                            "type"
+                        ],
+                        "additionalProperties": false
+                    },
+                    "projection": {
+                        "type": "string",
+                        "enum": [
+                            "ALL",
+                            "KEYS_ONLY",
+                            "INCLUDE"
+                        ]
+                    },
+                    "rcu": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "wcu": {
+                        "type": "integer",
+                        "minimum": 1
+                    }
+                },
+                "required": [
+                    "index_name",
+                    "partition_key",
+                    "projection"
+                ],
+                "additionalProperties": false
+            }
+        },
+        "tags": {
+            "type": "object",
+            "patternProperties": {
+                "^[a-zA-Z0-9-_]+$": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "required": [
+        "table_name",
+        "partition_key",
+        "billing_mode",
+        "pitr",
+        "kms_alias"
+    ],
+    "additionalProperties": false
+}

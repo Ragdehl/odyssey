@@ -1,0 +1,16 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.5.7
+    hooks:
+      - id: ruff
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: json-schema-validate
+        name: Validate JSON against project schemas
+        entry: python scripts/validate_all_configs.py
+        language: python
+        additional_dependencies: [jsonschema>=4]
+        pass_filenames: false
+        types: [json]
